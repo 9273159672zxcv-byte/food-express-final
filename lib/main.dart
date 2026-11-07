@@ -34,6 +34,7 @@ class _MainScreenState extends State<MainScreen> {
   bool _isLoading = false;
   String _resultText = 'Выберите Excel-файл';
   List<LatLng> _routePoints = [];
+  List<LatLng> _markers = [];
   static const platform = MethodChannel('com.example.food_express_route/file');
 
   Future<void> _pickAndUploadFile() async {
@@ -43,7 +44,7 @@ class _MainScreenState extends State<MainScreen> {
 
       setState(() {
         _isLoading = true;
-        _resultText = 'Отправка...';
+        _resultText = 'Построение маршрута...';
       });
 
       File file = File(filePath);
@@ -57,21 +58,31 @@ class _MainScreenState extends State<MainScreen> {
       if (response.statusCode == 200) {
         var data = jsonDecode(response.body);
         List<LatLng> points = [];
+        List<LatLng> markerPoints = [];
         
-        // Превращаем координаты в точки на карте
+        // Линия маршрута
         for (var coord in data['route']) {
           points.add(LatLng(coord[1], coord[0])); 
+        }
+
+        // Точки для маркеров
+        if (data['points'] != null) {
+          for (var p in data['points']) {
+            var parts = p.split(',');
+            markerPoints.add(LatLng(double.parse(parts[1]), double.parse(parts[0])));
+          }
         }
 
         setState(() {
           _isLoading = false;
           _resultText = 'Маршрут построен!';
           _routePoints = points;
+          _markers = markerPoints;
         });
       } else {
         setState(() {
           _isLoading = false;
-          _resultText = 'Ошибка: ${response.statusCode}\n${response.body}';
+          _resultText = 'Ошибка: ${response.statusCode}';
         });
       }
     } catch (e) {
@@ -107,9 +118,17 @@ class _MainScreenState extends State<MainScreen> {
                     Polyline(
                       points: _routePoints,
                       strokeWidth: 5.0,
-                      color: Colors.red,
+                      color: Colors.blue, // Синяя линия (как в навигаторе)
                     ),
                   ],
+                ),
+                MarkerLayer(
+                  markers: _markers.map((point) => Marker(
+                    point: point,
+                    width: 40,
+                    height: 40,
+                    child: const Icon(Icons.location_on, color: Colors.red, size: 40),
+                  )).toList(),
                 ),
               ],
             ),
