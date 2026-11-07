@@ -10,10 +10,6 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.1.0
-  file_picker: ^8.3.6
-
-dependency_overrides:
-  file_picker: ^8.3.6
 
 flutter:
   uses-material-design: true
