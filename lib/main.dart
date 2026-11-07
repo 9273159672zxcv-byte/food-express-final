@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 
 void main() {
@@ -31,28 +32,36 @@ class _MainScreenState extends State<MainScreen> {
   String _resultText = 'Выберите Excel-файл для загрузки';
 
   Future<void> _pickAndUploadFile() async {
-    // Временная заглушка, так как мы убрали file_picker
-    // Здесь будет стандартный выбор файла, если понадобится
-    setState(() {
-      _resultText = 'Выбор файла пока недоступен. Нажмите для теста сети.';
-    });
-    
-    // ТЕСТ СЕТИ: Отправляем пустой запрос на сервер, чтобы проверить связь
-    setState(() {
-      _isLoading = true;
-      _resultText = 'Проверка связи с сервером...';
-    });
-
     try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['xlsx', 'xls'],
+      );
+
+      if (result == null) return;
+
+      setState(() {
+        _isLoading = true;
+        _resultText = 'Отправка файла на сервер...';
+      });
+
+      File file = File(result.files.single.path!);
+
       var uri = Uri.parse('http://95.163.230.180:8081/upload');
       var request = http.MultipartRequest('POST', uri);
       
+      request.files.add(await http.MultipartFile.fromPath('file', file.path));
+
       var streamedResponse = await request.send();
       var response = await http.Response.fromStream(streamedResponse);
 
       setState(() {
         _isLoading = false;
-        _resultText = 'Сервер ответил: ${response.statusCode}\n${response.body}';
+        if (response.statusCode == 200) {
+          _resultText = 'Успех! Сервер ответил:\n${response.body}';
+        } else {
+          _resultText = 'Ошибка сервера: ${response.statusCode}\n${response.body}';
+        }
       });
     } catch (e) {
       setState(() {
@@ -81,9 +90,15 @@ class _MainScreenState extends State<MainScreen> {
               const SizedBox(height: 30),
               Text(_resultText, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
               const SizedBox(height: 40),
-              ElevatedButton(
+              ElevatedButton.icon(
                 onPressed: _isLoading ? null : _pickAndUploadFile,
-                child: const Text('ПРОВЕРИТЬ СВЯЗЬ С СЕРВЕРОМ'),
+                icon: const Icon(Icons.file_upload),
+                label: const Text('ВЫБРАТЬ ФАЙЛ EXCEL'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFE53935),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                ),
               ),
             ],
           ),
