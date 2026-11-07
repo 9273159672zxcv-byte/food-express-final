@@ -1,7 +1,10 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 void main() {
   runApp(const MyApp());
@@ -29,7 +32,8 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   bool _isLoading = false;
-  String _resultText = 'Выберите Excel-файл для загрузки';
+  String _resultText = 'Выберите Excel-файл';
+  List<LatLng> _routePoints = [];
   static const platform = MethodChannel('com.example.food_express_route/file');
 
   Future<void> _pickAndUploadFile() async {
@@ -39,7 +43,7 @@ class _MainScreenState extends State<MainScreen> {
 
       setState(() {
         _isLoading = true;
-        _resultText = 'Отправка файла на сервер...';
+        _resultText = 'Отправка...';
       });
 
       File file = File(filePath);
@@ -50,12 +54,25 @@ class _MainScreenState extends State<MainScreen> {
       var streamedResponse = await request.send();
       var response = await http.Response.fromStream(streamedResponse);
 
-      setState(() {
-        _isLoading = false;
-        _resultText = response.statusCode == 200 
-            ? 'Успех! Сервер ответил:\n${response.body}'
-            : 'Ошибка сервера: ${response.statusCode}\n${response.body}';
-      });
+      if (response.statusCode == 200) {
+        var data = jsonDecode(response.body);
+        List<LatLng> points = [];
+        
+        for (var item in data['optimized_order']) {
+          points.add(LatLng(item['lat'], item['lng']));
+        }
+
+        setState(() {
+          _isLoading = false;
+          _resultText = 'Маршрут построен!';
+          _routePoints = points;
+        });
+      } else {
+        setState(() {
+          _isLoading = false;
+          _resultText = 'Ошибка: ${response.statusCode}';
+        });
+      }
     } catch (e) {
       setState(() {
         _isLoading = false;
@@ -67,46 +84,57 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
         backgroundColor: const Color(0xFFE53935),
-        title: const Text('Фуд-Экспресс', style: TextStyle(color: Colors.white)),
-        centerTitle: true,
+        title: const Text('Фуд-Экспресс'),
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (_isLoading) const CircularProgressIndicator() else const Icon(Icons.local_shipping, size: 80, color: Color(0xFFE53935)),
-              const SizedBox(height: 20),
-              
-              // Здесь мы уменьшили шрифт, чтобы текст помещался
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Text(
-                    _resultText, 
-                    textAlign: TextAlign.center, 
-                    style: const TextStyle(fontSize: 10), // Шрифт уменьшен
-                  ),
-                ),
+      body: Column(
+        children: [
+          Expanded(
+            child: FlutterMap(
+              options: MapOptions(
+                initialCenter: LatLng(54.7388, 55.9721), // Уфа
+                initialZoom: 12.0,
               ),
-              
-              const SizedBox(height: 20),
-              ElevatedButton.icon(
-                onPressed: _isLoading ? null : _pickAndUploadFile,
-                icon: const Icon(Icons.file_upload),
-                label: const Text('ВЫБРАТЬ ФАЙЛ EXCEL'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFE53935),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+              children: [
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.example.food_express_route',
                 ),
-              ),
-            ],
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _routePoints,
+                      strokeWidth: 4.0,
+                      color: Colors.red,
+                    ),
+                  ],
+                ),
+                MarkerLayer(
+                  markers: _routePoints.map((point) => Marker(
+                    point: point,
+                    width: 40,
+                    height: 40,
+                    child: const Icon(Icons.location_on, color: Colors.red),
+                  )).toList(),
+                ),
+              ],
+            ),
           ),
-        ),
+          Container(
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              children: [
+                Text(_resultText, style: const TextStyle(fontSize: 14)),
+                const SizedBox(height: 10),
+                ElevatedButton(
+                  onPressed: _isLoading ? null : _pickAndUploadFile,
+                  child: const Text('ВЫБРАТЬ ФАЙЛ EXCEL'),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
