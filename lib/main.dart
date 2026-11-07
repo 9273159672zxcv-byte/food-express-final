@@ -55,22 +55,15 @@ class _MainScreenState extends State<MainScreen> {
       var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
-        var data = jsonDecode(response.body);
-        List<LatLng> points = [];
-        
-        for (var item in data['optimized_order']) {
-          points.add(LatLng(item['lat'], item['lng']));
-        }
-
+        // ВОТ ЗДЕСЬ МЫ ПОКАЗЫВАЕМ ОТВЕТ СЕРВЕРА
         setState(() {
           _isLoading = false;
-          _resultText = 'Маршрут построен!';
-          _routePoints = points;
+          _resultText = 'Ответ сервера: ${response.body}';
         });
       } else {
         setState(() {
           _isLoading = false;
-          _resultText = 'Ошибка: ${response.statusCode}';
+          _resultText = 'Ошибка: ${response.statusCode}\n${response.body}';
         });
       }
     } catch (e) {
@@ -105,18 +98,10 @@ class _MainScreenState extends State<MainScreen> {
                   polylines: [
                     Polyline(
                       points: _routePoints,
-                      strokeWidth: 4.0,
+                      strokeWidth: 5.0,
                       color: Colors.red,
                     ),
                   ],
-                ),
-                MarkerLayer(
-                  markers: _routePoints.map((point) => Marker(
-                    point: point,
-                    width: 40,
-                    height: 40,
-                    child: const Icon(Icons.location_on, color: Colors.red),
-                  )).toList(),
                 ),
               ],
             ),
@@ -125,7 +110,7 @@ class _MainScreenState extends State<MainScreen> {
             padding: const EdgeInsets.all(10),
             child: Column(
               children: [
-                Text(_resultText, style: const TextStyle(fontSize: 14)),
+                Text(_resultText, style: const TextStyle(fontSize: 12)),
                 const SizedBox(height: 10),
                 ElevatedButton(
                   onPressed: _isLoading ? null : _pickAndUploadFile,
