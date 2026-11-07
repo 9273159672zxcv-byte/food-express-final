@@ -27,7 +27,8 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   bool _isLoading = false;
-  String _resultText = 'Готов к построению маршрута';
+  String _resultText = 'Введите имя файла и нажмите кнопку';
+  final TextEditingController _controller = TextEditingController(text: 'test.xlsx');
 
   Future<void> _buildRoute() async {
     setState(() {
@@ -39,15 +40,15 @@ class _MainScreenState extends State<MainScreen> {
       var uri = Uri.parse('http://95.163.230.180:8081/upload');
       var request = http.MultipartRequest('POST', uri);
       
-      // Отправляем имя файла, который уже есть на сервере
-      request.fields['filename'] = 'test.xlsx'; 
+      // Отправляем имя файла, который лежит на сервере
+      request.fields['filename'] = _controller.text;
 
       var streamedResponse = await request.send();
       var response = await http.Response.fromStream(streamedResponse);
 
       setState(() {
         _isLoading = false;
-        _resultText = 'Ответ сервера: ${response.statusCode}\n${response.body}';
+        _resultText = 'Ответ: ${response.statusCode}\n${response.body}';
       });
     } catch (e) {
       setState(() {
@@ -74,7 +75,15 @@ class _MainScreenState extends State<MainScreen> {
             children: [
               if (_isLoading) const CircularProgressIndicator() else const Icon(Icons.local_shipping, size: 80, color: Color(0xFFE53935)),
               const SizedBox(height: 30),
-              Text(_resultText, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
+              TextField(
+                controller: _controller,
+                decoration: const InputDecoration(
+                  labelText: 'Имя файла на сервере',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(_resultText, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14)),
               const SizedBox(height: 40),
               ElevatedButton.icon(
                 onPressed: _isLoading ? null : _buildRoute,
