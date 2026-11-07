@@ -65,7 +65,7 @@ class _MainScreenState extends State<MainScreen> {
           points.add(LatLng(coord[1], coord[0])); 
         }
 
-        // Точки для маркеров
+        // Точки для маркеров (в правильном порядке)
         if (data['points'] != null) {
           for (var p in data['points']) {
             var parts = p.split(',');
@@ -75,7 +75,7 @@ class _MainScreenState extends State<MainScreen> {
 
         setState(() {
           _isLoading = false;
-          _resultText = 'Маршрут построен!';
+          _resultText = 'Маршрут построен! Точек: ${markerPoints.length}';
           _routePoints = points;
           _markers = markerPoints;
         });
@@ -118,17 +118,37 @@ class _MainScreenState extends State<MainScreen> {
                     Polyline(
                       points: _routePoints,
                       strokeWidth: 5.0,
-                      color: Colors.blue, // Синяя линия (как в навигаторе)
+                      color: Colors.blue, // Синяя линия маршрута
                     ),
                   ],
                 ),
                 MarkerLayer(
-                  markers: _markers.map((point) => Marker(
-                    point: point,
-                    width: 40,
-                    height: 40,
-                    child: const Icon(Icons.location_on, color: Colors.red, size: 40),
-                  )).toList(),
+                  // Здесь мы рисуем маркеры с номерами
+                  markers: _markers.asMap().entries.map((entry) {
+                    int index = entry.key;
+                    LatLng point = entry.value;
+                    return Marker(
+                      point: point,
+                      width: 40,
+                      height: 40,
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Center(
+                          child: Text(
+                            '${index + 1}', // Номер точки (1, 2, 3...)
+                            style: const TextStyle(
+                              color: Colors.white, 
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
                 ),
               ],
             ),
