@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 void main() {
@@ -27,28 +29,32 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   bool _isLoading = false;
-  String _resultText = 'Введите имя файла и нажмите кнопку';
-  final TextEditingController _controller = TextEditingController(text: 'test.xlsx');
+  String _resultText = 'Выберите Excel-файл для загрузки';
+  static const platform = MethodChannel('com.example.food_express_route/file');
 
-  Future<void> _buildRoute() async {
-    setState(() {
-      _isLoading = true;
-      _resultText = 'Запрос маршрута...';
-    });
-
+  Future<void> _pickAndUploadFile() async {
     try {
+      final String? filePath = await platform.invokeMethod('pickFile');
+      if (filePath == null) return;
+
+      setState(() {
+        _isLoading = true;
+        _resultText = 'Отправка файла на сервер...';
+      });
+
+      File file = File(filePath);
       var uri = Uri.parse('http://95.163.230.180:8081/upload');
       var request = http.MultipartRequest('POST', uri);
-      
-      // Отправляем имя файла, который лежит на сервере
-      request.fields['filename'] = _controller.text;
+      request.files.add(await http.MultipartFile.fromPath('file', file.path));
 
       var streamedResponse = await request.send();
       var response = await http.Response.fromStream(streamedResponse);
 
       setState(() {
         _isLoading = false;
-        _resultText = 'Ответ: ${response.statusCode}\n${response.body}';
+        _resultText = response.statusCode == 200 
+            ? 'Успех! Сервер ответил:\n${response.body}'
+            : 'Ошибка сервера: ${response.statusCode}\n${response.body}';
       });
     } catch (e) {
       setState(() {
@@ -75,20 +81,12 @@ class _MainScreenState extends State<MainScreen> {
             children: [
               if (_isLoading) const CircularProgressIndicator() else const Icon(Icons.local_shipping, size: 80, color: Color(0xFFE53935)),
               const SizedBox(height: 30),
-              TextField(
-                controller: _controller,
-                decoration: const InputDecoration(
-                  labelText: 'Имя файла на сервере',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(_resultText, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14)),
+              Text(_resultText, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
               const SizedBox(height: 40),
               ElevatedButton.icon(
-                onPressed: _isLoading ? null : _buildRoute,
-                icon: const Icon(Icons.route),
-                label: const Text('ПОСТРОИТЬ МАРШРУТ'),
+                onPressed: _isLoading ? null : _pickAndUploadFile,
+                icon: const Icon(Icons.file_upload),
+                label: const Text('ВЫБРАТЬ ФАЙЛ EXCEL'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFE53935),
                   foregroundColor: Colors.white,
