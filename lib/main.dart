@@ -55,10 +55,18 @@ class _MainScreenState extends State<MainScreen> {
       var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
-        // ВОТ ЗДЕСЬ МЫ ПОКАЗЫВАЕМ ОТВЕТ СЕРВЕРА
+        var data = jsonDecode(response.body);
+        List<LatLng> points = [];
+        
+        // Превращаем координаты в точки на карте
+        for (var coord in data['route']) {
+          points.add(LatLng(coord[1], coord[0])); 
+        }
+
         setState(() {
           _isLoading = false;
-          _resultText = 'Ответ сервера: ${response.body}';
+          _resultText = 'Маршрут построен!';
+          _routePoints = points;
         });
       } else {
         setState(() {
@@ -110,7 +118,7 @@ class _MainScreenState extends State<MainScreen> {
             padding: const EdgeInsets.all(10),
             child: Column(
               children: [
-                Text(_resultText, style: const TextStyle(fontSize: 12)),
+                Text(_resultText, style: const TextStyle(fontSize: 14)),
                 const SizedBox(height: 10),
                 ElevatedButton(
                   onPressed: _isLoading ? null : _pickAndUploadFile,
