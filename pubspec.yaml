@@ -15,5 +15,10 @@ dependencies:
   geolocator: ^11.0.0
   flutter_map_location_marker: ^8.0.0
 
+dependency_overrides:
+  flutter_map_location_marker:
+    git:
+      url: https://github.com/dariocavada/flutter_map_location_marker.git
+
 flutter:
   uses-material-design: true
