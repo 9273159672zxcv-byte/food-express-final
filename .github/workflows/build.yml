@@ -25,10 +25,6 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Force Gradle Version
-        run: |
-          sed -i 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.0-bin.zip|' android/gradle/wrapper/gradle-wrapper.properties
-
       - name: Build APK
         run: flutter build apk --release --android-skip-build-dependency-validation
 
