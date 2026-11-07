@@ -1,6 +1,4 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 
 void main() {
@@ -29,39 +27,24 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   bool _isLoading = false;
-  String _resultText = 'Выберите Excel-файл для загрузки';
+  String _resultText = 'Нажмите для проверки связи';
 
-  Future<void> _pickAndUploadFile() async {
+  Future<void> _checkConnection() async {
+    setState(() {
+      _isLoading = true;
+      _resultText = 'Проверка связи с сервером...';
+    });
+
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['xlsx', 'xls'],
-      );
-
-      if (result == null) return;
-
-      setState(() {
-        _isLoading = true;
-        _resultText = 'Отправка файла на сервер...';
-      });
-
-      File file = File(result.files.single.path!);
-
       var uri = Uri.parse('http://95.163.230.180:8081/upload');
       var request = http.MultipartRequest('POST', uri);
       
-      request.files.add(await http.MultipartFile.fromPath('file', file.path));
-
       var streamedResponse = await request.send();
       var response = await http.Response.fromStream(streamedResponse);
 
       setState(() {
         _isLoading = false;
-        if (response.statusCode == 200) {
-          _resultText = 'Успех! Сервер ответил:\n${response.body}';
-        } else {
-          _resultText = 'Ошибка сервера: ${response.statusCode}\n${response.body}';
-        }
+        _resultText = 'Сервер ответил: ${response.statusCode}\n${response.body}';
       });
     } catch (e) {
       setState(() {
@@ -91,9 +74,9 @@ class _MainScreenState extends State<MainScreen> {
               Text(_resultText, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
               const SizedBox(height: 40),
               ElevatedButton.icon(
-                onPressed: _isLoading ? null : _pickAndUploadFile,
-                icon: const Icon(Icons.file_upload),
-                label: const Text('ВЫБРАТЬ ФАЙЛ EXCEL'),
+                onPressed: _isLoading ? null : _checkConnection,
+                icon: const Icon(Icons.wifi),
+                label: const Text('ПРОВЕРИТЬ СВЯЗЬ С СЕРВЕРОМ'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFE53935),
                   foregroundColor: Colors.white,
