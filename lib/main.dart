@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 
 void main() {
@@ -31,21 +31,21 @@ class _MainScreenState extends State<MainScreen> {
   bool _isLoading = false;
   String _resultText = 'Выберите Excel-файл для загрузки';
 
-  static const platform = MethodChannel('com.example.food_express_route/file');
-
   Future<void> _pickAndUploadFile() async {
     try {
-      // Вызов нативного выбора файла
-      final String? filePath = await platform.invokeMethod('pickFile');
-      
-      if (filePath == null) return;
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['xlsx', 'xls'],
+      );
+
+      if (result == null) return;
 
       setState(() {
         _isLoading = true;
         _resultText = 'Отправка файла на сервер...';
       });
 
-      File file = File(filePath);
+      File file = File(result.files.single.path!);
       var uri = Uri.parse('http://95.163.230.180:8081/upload');
       var request = http.MultipartRequest('POST', uri);
       
