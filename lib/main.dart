@@ -43,8 +43,8 @@ class _MainScreenState extends State<MainScreen> {
   int _currentTargetIndex = 0; 
   
   LatLng? _currentPosition;
-  double _heading = 0.0; // Направление телефона
-  bool _followUser = false; // Режим "навигатор"
+  double _heading = 0.0; 
+  bool _followUser = false; // По умолчанию карта смотрит на Север
   
   final MapController _mapController = MapController();
   StreamSubscription<Position>? _positionStreamSubscription;
@@ -70,12 +70,18 @@ class _MainScreenState extends State<MainScreen> {
   void _startCompass() {
     _compassStreamSubscription = FlutterCompass.events?.listen((event) {
       if (event.heading != null && mounted) {
+        // Сглаживание: если разница в градусах слишком большая (рывок), игнорируем или плавно переходим
+        double newHeading = event.heading!;
+        
+        // Если карта не в режиме навигатора, не обновляем карту, но обновляем стрелочку
         setState(() {
-          _heading = event.heading!;
+          // Плавный переход (сглаживание)
+          if ((newHeading - _heading).abs() > 180) {
+             _heading = newHeading;
+          } else {
+             _heading = _heading + (newHeading - _heading) * 0.2; // Плавно идем к новому углу
+          }
         });
-        if (_followUser && _currentPosition != null) {
-          _mapController.rotate(-_heading); 
-        }
       }
     });
   }
@@ -100,7 +106,7 @@ class _MainScreenState extends State<MainScreen> {
       final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
       if (mounted) {
         setState(() => _currentPosition = LatLng(pos.latitude, pos.longitude));
-        _mapController.move(_currentPosition!, 15.0);
+        _mapController.move(_currentPosition!, 16.0);
       }
     } catch (e) {}
 
@@ -110,6 +116,9 @@ class _MainScreenState extends State<MainScreen> {
       if (mounted) {
         setState(() => _currentPosition = LatLng(position.latitude, position.longitude));
         _checkArrival();
+        if (_followUser) {
+          _mapController.move(_currentPosition!, _mapController.camera.zoom);
+        }
       }
     });
   }
@@ -253,62 +262,65 @@ class _MainScreenState extends State<MainScreen> {
         child: Column(
           children: [
             Expanded(
-              child: FlutterMap(
-                mapController: _mapController,
-                options: MapOptions(
-                  initialCenter: _currentPosition ?? const LatLng(54.7388, 55.9721),
-                  initialZoom: 15.0,
-                ),
-                children: [
-                  TileLayer(
-                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'com.example.food_express_route',
+              // Анимация поворота карты (сглаженная)
+              child: AnimatedRotation(
+                turns: _followUser ? -_heading / 360 : 0,
+                duration: const Duration(milliseconds: 300), // Плавный поворот
+                child: FlutterMap(
+                  mapController: _mapController,
+                  options: MapOptions(
+                    initialCenter: _currentPosition ?? const LatLng(54.7388, 55.9721),
+                    initialZoom: 16.0,
                   ),
-                  PolylineLayer(
-                    polylines: [
-                      Polyline(
-                        points: _routePoints,
-                        strokeWidth: 5.0,
-                        color: Colors.blue,
-                      ),
-                    ],
-                  ),
-                  MarkerLayer(
-                    markers: visibleMarkers.asMap().entries.map((entry) {
-                      int originalIndex = entry.key + _currentTargetIndex;
-                      LatLng point = entry.value;
-                      return Marker(
-                        point: point,
-                        width: 30,
-                        height: 30,
-                        child: Container(
-                          decoration: const BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Center(
-                            child: Text(
-                              '${originalIndex + 1}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                  children: [
+                    TileLayer(
+                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.example.food_express_route',
+                    ),
+                    PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: _routePoints,
+                          strokeWidth: 6.0,
+                          color: Colors.blue,
+                        ),
+                      ],
+                    ),
+                    MarkerLayer(
+                      markers: visibleMarkers.asMap().entries.map((entry) {
+                        int originalIndex = entry.key + _currentTargetIndex;
+                        LatLng point = entry.value;
+                        return Marker(
+                          point: point,
+                          width: 30,
+                          height: 30,
+                          child: Container(
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Center(
+                              child: Text(
+                                '${originalIndex + 1}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  if (_currentPosition != null)
-                    MarkerLayer(
-                      markers: [
-                        Marker(
-                          point: _currentPosition!,
-                          width: 40,
-                          height: 40,
-                          child: Transform.rotate(
-                            angle: _heading * (pi / 180), 
+                        );
+                      }).toList(),
+                    ),
+                    if (_currentPosition != null)
+                      MarkerLayer(
+                        markers: [
+                          Marker(
+                            point: _currentPosition!,
+                            width: 40,
+                            height: 40,
+                            // Стрелка всегда смотрит вверх, так как карта крутится под ней
                             child: const Icon(
                               Icons.navigation,
                               color: Colors.blue,
@@ -319,10 +331,10 @@ class _MainScreenState extends State<MainScreen> {
                               ],
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                ],
+                        ],
+                      ),
+                  ],
+                ),
               ),
             ),
             Container(
@@ -368,23 +380,15 @@ class _MainScreenState extends State<MainScreen> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor: _followUser ? Colors.red : Colors.blue,
-        child: Icon(_followUser ? Icons.explore : Icons.my_location, color: Colors.white),
+        backgroundColor: _followUser ? Colors.green : Colors.blue,
+        child: Icon(_followUser ? Icons.navigation : Icons.map, color: Colors.white),
         onPressed: () {
           setState(() {
             _followUser = !_followUser;
-          });
-          
-          if (_currentPosition != null) {
-            _mapController.move(_currentPosition!, 16.0);
-            if (_followUser) {
-              _mapController.rotate(-_heading);
-            } else {
-              _mapController.rotate(0);
+            if (_followUser && _currentPosition != null) {
+              _mapController.move(_currentPosition!, 16.0);
             }
-          } else {
-            _startLocationTracking();
-          }
+          });
         },
       ),
     );
