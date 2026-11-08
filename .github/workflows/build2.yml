@@ -25,17 +25,6 @@ jobs:
         channel: 'stable'
         cache: false
 
-    - name: Recreate android folder
-      run: flutter create --platforms=android .
-
-    - name: Force Fix Android Embedding
-      run: |
-        MANIFEST="android/app/src/main/AndroidManifest.xml"
-        sed -i 's/android:name="io.flutter.app.FlutterApplication"/android:name="${applicationName}"/g' $MANIFEST
-        if ! grep -q 'flutterEmbedding' $MANIFEST; then
-          sed -i 's/<application/<application\n        <meta-data android:name="flutterEmbedding" android:value="2" \/>/' $MANIFEST
-        fi
-
     - name: Install dependencies
       run: flutter pub get
 
