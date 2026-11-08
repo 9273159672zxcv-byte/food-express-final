@@ -1,14 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:flutter_compass/flutter_compass.dart';
 
 void main() {
   runApp(const MyApp());
@@ -43,11 +41,9 @@ class _MainScreenState extends State<MainScreen> {
   int _currentTargetIndex = 0; 
   
   LatLng? _currentPosition;
-  double _heading = 0.0; 
   
   final MapController _mapController = MapController();
   StreamSubscription<Position>? _positionStreamSubscription;
-  StreamSubscription<CompassEvent>? _compassStreamSubscription;
   static const platform = MethodChannel('com.example.food_express_route/file');
   
   final String _mapboxToken = 'pk.eyJ1IjoicmFpbDc3NyIsImEiOiJjbXc0eTdvY3owMmwxMnlxd3NqdDNqYXFhIn0.QSlooIUtFVn94FW-odWkZQ';
@@ -55,27 +51,15 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    // Сначала ставим карту на центр Уфы, чтобы она сразу загрузилась
+    _mapController.move(const LatLng(54.7388, 55.9721), 12.0);
     _startLocationTracking();
-    _startCompass();
   }
 
   @override
   void dispose() {
     _positionStreamSubscription?.cancel();
-    _compassStreamSubscription?.cancel();
     super.dispose();
-  }
-
-  void _startCompass() {
-    _compassStreamSubscription = FlutterCompass.events?.listen((event) {
-      if (event.heading != null && mounted) {
-        setState(() {
-          _heading = event.heading!;
-        });
-        // Встроенный поворот карты (чтобы дорога всегда была впереди)
-        _mapController.rotate(-_heading);
-      }
-    });
   }
 
   Future<void> _startLocationTracking() async {
@@ -94,21 +78,20 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    try {
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-      if (mounted) {
-        setState(() => _currentPosition = LatLng(pos.latitude, pos.longitude));
-        _mapController.move(_currentPosition!, 16.0);
-      }
-    } catch (e) {}
-
+    // Слушаем GPS постоянно, карта будет двигаться сама
     _positionStreamSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 5),
     ).listen((Position position) {
       if (mounted) {
-        setState(() => _currentPosition = LatLng(position.latitude, position.longitude));
+        setState(() {
+          _currentPosition = LatLng(position.latitude, position.longitude);
+        });
         _checkArrival();
-        _mapController.move(_currentPosition!, _mapController.camera.zoom);
+        
+        // Если мы получили позицию, сдвигаем карту к себе
+        if (_currentPosition != null) {
+          _mapController.move(_currentPosition!, 16.0);
+        }
       }
     });
   }
@@ -256,11 +239,11 @@ class _MainScreenState extends State<MainScreen> {
               child: FlutterMap(
                 mapController: _mapController,
                 options: MapOptions(
-                  initialCenter: _currentPosition ?? const LatLng(54.7388, 55.9721),
-                  initialZoom: 16.0,
-                  // Разрешаем вращение карты (оно управляется компасом)
+                  initialCenter: const LatLng(54.7388, 55.9721),
+                  initialZoom: 12.0,
+                  // Запрещаем вращение, чтобы не было белых углов
                   interactionOptions: const InteractionOptions(
-                    flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag | InteractiveFlag.rotate,
+                    flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag,
                   ),
                 ),
                 children: [
@@ -382,6 +365,9 @@ class _MainScreenState extends State<MainScreen> {
               _mapController.move(_currentPosition!, 16.0);
             } else {
               _startLocationTracking();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Ищем спутники GPS...')),
+              );
             }
           },
         ),
