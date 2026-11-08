@@ -15,5 +15,8 @@ dependencies:
   geolocator: ^10.1.0
   flutter_map_location_marker: ^8.0.2
 
+dependency_overrides:
+  geolocator_android: 4.6.1
+
 flutter:
   uses-material-design: true
