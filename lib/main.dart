@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:flutter_map_location_marker/flutter_map_location_marker.dart';
 import 'package:geolocator/geolocator.dart';
 
 void main() {
@@ -37,10 +36,41 @@ class _MainScreenState extends State<MainScreen> {
   String _resultText = 'Выберите Excel-файл';
   List<LatLng> _routePoints = [];
   List<LatLng> _markers = [];
+  LatLng? _currentPosition;
   static const platform = MethodChannel('com.example.food_express_route/file');
 
+  @override
+  void initState() {
+    super.initState();
+    _initLocation();
+  }
+
+  Future<void> _initLocation() async {
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      setState(() {
+        _resultText = 'Нет доступа к геолокации';
+      });
+      return;
+    }
+
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      setState(() {
+        _currentPosition = LatLng(pos.latitude, pos.longitude);
+      });
+    } catch (e) {
+      // тихо игнорируем: карта всё равно откроется
+    }
+  }
+
   Future<void> _pickAndUploadFile() async {
-    // 1. Запрашиваем разрешение на геолокацию
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -73,9 +103,9 @@ class _MainScreenState extends State<MainScreen> {
         var data = jsonDecode(response.body);
         List<LatLng> points = [];
         List<LatLng> markerPoints = [];
-        
+
         for (var coord in data['route']) {
-          points.add(LatLng(coord[1], coord[0])); 
+          points.add(LatLng(coord[1], coord[0]));
         }
 
         if (data['points'] != null) {
@@ -116,8 +146,8 @@ class _MainScreenState extends State<MainScreen> {
         children: [
           Expanded(
             child: FlutterMap(
-              options: const MapOptions(
-                initialCenter: LatLng(54.7388, 55.9721),
+              options: MapOptions(
+                initialCenter: _currentPosition ?? const LatLng(54.7388, 55.9721),
                 initialZoom: 12.0,
               ),
               children: [
@@ -151,7 +181,7 @@ class _MainScreenState extends State<MainScreen> {
                           child: Text(
                             '${index + 1}',
                             style: const TextStyle(
-                              color: Colors.white, 
+                              color: Colors.white,
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
                             ),
@@ -161,7 +191,22 @@ class _MainScreenState extends State<MainScreen> {
                     );
                   }).toList(),
                 ),
-                const CurrentLocationLayer(),
+                if (_currentPosition != null)
+                  MarkerLayer(
+                    markers: [
+                      Marker(
+                        point: _currentPosition!,
+                        width: 20,
+                        height: 20,
+                        child: Container(
+                          decoration: const BoxDecoration(
+                            color: Colors.blue,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),
