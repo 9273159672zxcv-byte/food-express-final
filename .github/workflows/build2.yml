@@ -23,6 +23,10 @@ jobs:
       with:
         flutter-version: '3.24.0'
         channel: 'stable'
+        cache: false
+
+    - name: Recreate android folder
+      run: flutter create --platforms=android .
 
     - name: Install dependencies
       run: flutter pub get
