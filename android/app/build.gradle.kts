@@ -26,11 +26,6 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
-    
-    // ВОТ ЭТА СТРОЧКА ВКЛЮЧАЕТ V2 ДВИЖОК!
-    buildFeatures {
-        buildConfig = true
-    }
 }
 
 kotlin {
