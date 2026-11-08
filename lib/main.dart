@@ -44,7 +44,7 @@ class _MainScreenState extends State<MainScreen> {
   
   LatLng? _currentPosition;
   double _heading = 0.0; 
-  bool _isCompassMode = true; // По умолчанию включен режим компаса
+  bool _isCompassMode = false; // По умолчанию включен режим навигатора (карта крутится)
   
   final MapController _mapController = MapController();
   StreamSubscription<Position>? _positionStreamSubscription;
@@ -73,6 +73,11 @@ class _MainScreenState extends State<MainScreen> {
         setState(() {
           _heading = event.heading!;
         });
+        
+        // Встроенный поворот карты (библиотека сама догрузит углы)
+        if (!_isCompassMode) {
+          _mapController.rotate(-_heading);
+        }
       }
     });
   }
@@ -243,6 +248,7 @@ class _MainScreenState extends State<MainScreen> {
     List<LatLng> visibleMarkers = _allMarkers.sublist(_currentTargetIndex);
 
     return Scaffold(
+      backgroundColor: Colors.grey[300], // Серый фон на случай, если мелькнет угол
       appBar: AppBar(
         backgroundColor: const Color(0xFFE53935),
         title: const Text('Фуд-Экспресс'),
@@ -251,82 +257,77 @@ class _MainScreenState extends State<MainScreen> {
         child: Column(
           children: [
             Expanded(
-              // Если режим навигатора (_isCompassMode == false) - крутим всю карту
-              child: AnimatedRotation(
-                turns: _isCompassMode ? 0 : -_heading / 360,
-                duration: const Duration(milliseconds: 300),
-                child: FlutterMap(
-                  mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter: _currentPosition ?? const LatLng(54.7388, 55.9721),
-                    initialZoom: 16.0,
+              child: FlutterMap(
+                mapController: _mapController,
+                options: MapOptions(
+                  initialCenter: _currentPosition ?? const LatLng(54.7388, 55.9721),
+                  initialZoom: 16.0,
+                  backgroundColor: Colors.grey[300], 
+                ),
+                children: [
+                  TileLayer(
+                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.example.food_express_route',
                   ),
-                  children: [
-                    TileLayer(
-                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.example.food_express_route',
-                    ),
-                    PolylineLayer(
-                      polylines: [
-                        Polyline(
-                          points: _routePoints,
-                          strokeWidth: 6.0,
-                          color: Colors.blue,
+                  PolylineLayer(
+                    polylines: [
+                      Polyline(
+                        points: _routePoints,
+                        strokeWidth: 6.0,
+                        color: Colors.blue,
+                      ),
+                    ],
+                  ),
+                  MarkerLayer(
+                    markers: visibleMarkers.asMap().entries.map((entry) {
+                      int originalIndex = entry.key + _currentTargetIndex;
+                      LatLng point = entry.value;
+                      return Marker(
+                        point: point,
+                        width: 30,
+                        height: 30,
+                        child: Container(
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Center(
+                            child: Text(
+                              '${originalIndex + 1}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  if (_currentPosition != null)
+                    MarkerLayer(
+                      markers: [
+                        Marker(
+                          point: _currentPosition!,
+                          width: 40,
+                          height: 40,
+                          child: Transform.rotate(
+                            angle: _isCompassMode ? _heading * (pi / 180) : 0,
+                            child: const Icon(
+                              Icons.navigation,
+                              color: Colors.blue,
+                              size: 40,
+                              shadows: [
+                                Shadow(color: Colors.white, blurRadius: 10),
+                                Shadow(color: Colors.white, blurRadius: 5),
+                              ],
+                            ),
+                          ),
                         ),
                       ],
                     ),
-                    MarkerLayer(
-                      markers: visibleMarkers.asMap().entries.map((entry) {
-                        int originalIndex = entry.key + _currentTargetIndex;
-                        LatLng point = entry.value;
-                        return Marker(
-                          point: point,
-                          width: 30,
-                          height: 30,
-                          child: Container(
-                            decoration: const BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Center(
-                              child: Text(
-                                '${originalIndex + 1}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    if (_currentPosition != null)
-                      MarkerLayer(
-                        markers: [
-                          Marker(
-                            point: _currentPosition!,
-                            width: 40,
-                            height: 40,
-                            // Если карта крутится, стрелка стоит вверх. Если карта стоит, стрелка крутится
-                            child: Transform.rotate(
-                              angle: _isCompassMode ? _heading * (pi / 180) : 0,
-                              child: const Icon(
-                                Icons.navigation,
-                                color: Colors.blue,
-                                size: 40,
-                                shadows: [
-                                  Shadow(color: Colors.white, blurRadius: 10),
-                                  Shadow(color: Colors.white, blurRadius: 5),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
+                ],
               ),
             ),
             Container(
@@ -380,8 +381,7 @@ class _MainScreenState extends State<MainScreen> {
             setState(() {
               _isCompassMode = !_isCompassMode;
               if (_isCompassMode) {
-                // Если включили режим компаса, возвращаем карту на Север
-                _mapController.rotate(0);
+                _mapController.rotate(0); // Возвращаем Север вверх в режиме компаса
               }
             });
           },
