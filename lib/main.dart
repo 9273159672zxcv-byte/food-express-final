@@ -76,21 +76,36 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
+    // Пытаемся получить текущую позицию
     try {
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10), // Ждем не больше 10 секунд
+      );
       if (mounted) {
-        setState(() => _currentPosition = LatLng(pos.latitude, pos.longitude));
+        setState(() {
+          _currentPosition = LatLng(pos.latitude, pos.longitude);
+          _resultText = 'Геолокация найдена';
+        });
         _mapController.move(_currentPosition!, 16.0);
       }
-    } catch (e) {}
+    } catch (e) {
+      // Если не смогли найти за 10 секунд, просто оставляем карту на Уфе
+      if (mounted) {
+        setState(() => _resultText = 'Не удалось определить GPS. Проверьте связь.');
+      }
+    }
 
+    // Начинаем следить за перемещением
     _positionStreamSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 5),
     ).listen((Position position) {
       if (mounted) {
         setState(() => _currentPosition = LatLng(position.latitude, position.longitude));
         _checkArrival();
-        _mapController.move(_currentPosition!, _mapController.camera.zoom);
+        if (_currentPosition != null) {
+          _mapController.move(_currentPosition!, _mapController.camera.zoom);
+        }
       }
     });
   }
@@ -226,7 +241,7 @@ class _MainScreenState extends State<MainScreen> {
     List<LatLng> visibleMarkers = _allMarkers.sublist(_currentTargetIndex);
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.grey[200],
       appBar: AppBar(
         backgroundColor: const Color(0xFFE53935),
         title: const Text('Фуд-Экспресс'),
