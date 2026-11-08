@@ -6,6 +6,12 @@
     <application
         android:label="Фуд-Экспресс"
         android:usesCleartextTraffic="true">
+        
+        <!-- Вот эта строчка лечит ошибку сборки -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -19,6 +25,5 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <meta-data android:name="flutterEmbedding" android:value="2" />
     </application>
 </manifest>
