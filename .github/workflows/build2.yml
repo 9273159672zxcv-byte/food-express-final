@@ -25,24 +25,11 @@ jobs:
         channel: 'stable'
         cache: false
 
-    # Полностью удаляем старую папку android на сервере
     - name: Clean Android Folder
       run: rm -rf android
 
-    # Создаем папку android заново с правильными настройками
     - name: Recreate android folder
       run: flutter create --platforms=android .
-
-    # Принудительно исправляем манифест (на случай, если Flutter создал старый)
-    - name: Force Fix Android Manifest
-      run: |
-        MANIFEST="android/app/src/main/AndroidManifest.xml"
-        # Удаляем старую строку v1, если она есть
-        sed -i 's/android:name="io.flutter.app.FlutterApplication"//g' $MANIFEST
-        # Принудительно добавляем правильную метку v2, если ее нет
-        if ! grep -q 'flutterEmbedding' $MANIFEST; then
-          sed -i 's/<application/<application\n        <meta-data android:name="flutterEmbedding" android:value="2" \/>/' $MANIFEST
-        fi
 
     - name: Install dependencies
       run: flutter pub get
