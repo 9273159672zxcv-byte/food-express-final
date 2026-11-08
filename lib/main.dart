@@ -44,7 +44,7 @@ class _MainScreenState extends State<MainScreen> {
   
   LatLng? _currentPosition;
   double _heading = 0.0; 
-  bool _followUser = true; // Режим навигатора включен по умолчанию
+  bool _isCompassMode = true; // По умолчанию включен режим компаса
   
   final MapController _mapController = MapController();
   StreamSubscription<Position>? _positionStreamSubscription;
@@ -251,9 +251,9 @@ class _MainScreenState extends State<MainScreen> {
         child: Column(
           children: [
             Expanded(
-              // Крутим карту через AnimatedRotation для плавности
+              // Если режим навигатора (_isCompassMode == false) - крутим всю карту
               child: AnimatedRotation(
-                turns: _followUser ? -_heading / 360 : 0,
+                turns: _isCompassMode ? 0 : -_heading / 360,
                 duration: const Duration(milliseconds: 300),
                 child: FlutterMap(
                   mapController: _mapController,
@@ -309,15 +309,18 @@ class _MainScreenState extends State<MainScreen> {
                             point: _currentPosition!,
                             width: 40,
                             height: 40,
-                            // Стрелочка всегда смотрит вверх, так как карта крутится под ней
-                            child: const Icon(
-                              Icons.navigation,
-                              color: Colors.blue,
-                              size: 40,
-                              shadows: [
-                                Shadow(color: Colors.white, blurRadius: 10),
-                                Shadow(color: Colors.white, blurRadius: 5),
-                              ],
+                            // Если карта крутится, стрелка стоит вверх. Если карта стоит, стрелка крутится
+                            child: Transform.rotate(
+                              angle: _isCompassMode ? _heading * (pi / 180) : 0,
+                              child: const Icon(
+                                Icons.navigation,
+                                color: Colors.blue,
+                                size: 40,
+                                shadows: [
+                                  Shadow(color: Colors.white, blurRadius: 10),
+                                  Shadow(color: Colors.white, blurRadius: 5),
+                                ],
+                              ),
                             ),
                           ),
                         ],
@@ -371,11 +374,15 @@ class _MainScreenState extends State<MainScreen> {
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(bottom: 80.0),
         child: FloatingActionButton(
-          backgroundColor: _followUser ? Colors.green : Colors.blue,
-          child: Icon(_followUser ? Icons.navigation : Icons.map, color: Colors.white),
+          backgroundColor: _isCompassMode ? Colors.blue : Colors.green,
+          child: Icon(_isCompassMode ? Icons.explore : Icons.navigation, color: Colors.white),
           onPressed: () {
             setState(() {
-              _followUser = !_followUser;
+              _isCompassMode = !_isCompassMode;
+              if (_isCompassMode) {
+                // Если включили режим компаса, возвращаем карту на Север
+                _mapController.rotate(0);
+              }
             });
           },
         ),
