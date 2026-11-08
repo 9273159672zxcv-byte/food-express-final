@@ -40,7 +40,7 @@ class _MainScreenState extends State<MainScreen> {
   static const platform = MethodChannel('com.example.food_express_route/file');
 
   Future<void> _pickAndUploadFile() async {
-    // 1. Принудительно запрашиваем разрешение на геолокацию
+    // 1. Запрашиваем разрешение на геолокацию
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -116,8 +116,8 @@ class _MainScreenState extends State<MainScreen> {
         children: [
           Expanded(
             child: FlutterMap(
-              options: MapOptions(
-                initialCenter: LatLng(54.7388, 55.9721), // Уфа
+              options: const MapOptions(
+                initialCenter: LatLng(54.7388, 55.9721),
                 initialZoom: 12.0,
               ),
               children: [
@@ -161,7 +161,6 @@ class _MainScreenState extends State<MainScreen> {
                     );
                   }).toList(),
                 ),
-                // Слой геолокации
                 const CurrentLocationLayer(),
               ],
             ),
