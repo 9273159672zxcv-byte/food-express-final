@@ -51,8 +51,6 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
-    // Сначала ставим карту на центр Уфы, чтобы она сразу загрузилась
-    _mapController.move(const LatLng(54.7388, 55.9721), 12.0);
     _startLocationTracking();
   }
 
@@ -78,20 +76,21 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    // Слушаем GPS постоянно, карта будет двигаться сама
+    try {
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      if (mounted) {
+        setState(() => _currentPosition = LatLng(pos.latitude, pos.longitude));
+        _mapController.move(_currentPosition!, 16.0);
+      }
+    } catch (e) {}
+
     _positionStreamSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 5),
     ).listen((Position position) {
       if (mounted) {
-        setState(() {
-          _currentPosition = LatLng(position.latitude, position.longitude);
-        });
+        setState(() => _currentPosition = LatLng(position.latitude, position.longitude));
         _checkArrival();
-        
-        // Если мы получили позицию, сдвигаем карту к себе
-        if (_currentPosition != null) {
-          _mapController.move(_currentPosition!, 16.0);
-        }
+        _mapController.move(_currentPosition!, _mapController.camera.zoom);
       }
     });
   }
@@ -227,7 +226,7 @@ class _MainScreenState extends State<MainScreen> {
     List<LatLng> visibleMarkers = _allMarkers.sublist(_currentTargetIndex);
 
     return Scaffold(
-      backgroundColor: Colors.grey[200],
+      backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: const Color(0xFFE53935),
         title: const Text('Фуд-Экспресс'),
@@ -241,7 +240,6 @@ class _MainScreenState extends State<MainScreen> {
                 options: MapOptions(
                   initialCenter: const LatLng(54.7388, 55.9721),
                   initialZoom: 12.0,
-                  // Запрещаем вращение, чтобы не было белых углов
                   interactionOptions: const InteractionOptions(
                     flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag,
                   ),
@@ -365,9 +363,6 @@ class _MainScreenState extends State<MainScreen> {
               _mapController.move(_currentPosition!, 16.0);
             } else {
               _startLocationTracking();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Ищем спутники GPS...')),
-              );
             }
           },
         ),
