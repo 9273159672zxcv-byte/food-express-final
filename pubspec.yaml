@@ -12,13 +12,8 @@ dependencies:
   http: ^1.1.0
   flutter_map: ^6.1.0
   latlong2: ^0.9.0
-  geolocator: ^11.0.0
-  flutter_map_location_marker: ^8.0.0
-
-dependency_overrides:
-  flutter_map_location_marker:
-    git:
-      url: https://github.com/dariocavada/flutter_map_location_marker.git
+  geolocator: ^10.1.0
+  flutter_map_location_marker: ^8.0.2
 
 flutter:
   uses-material-design: true
