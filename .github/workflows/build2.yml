@@ -1,38 +1,28 @@
-name: Build APK
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.INTERNET"/>
 
-on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
+    <application
+        android:label="Фуд-Экспресс"
+        android:usesCleartextTraffic="true">
+        
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'zulu'
-        java-version: '17'
-
-    - name: Setup Flutter
-      uses: subosito/flutter-action@v2
-      with:
-        flutter-version: '3.35.0'
-        channel: 'stable'
-        cache: false
-
-    - name: Install dependencies
-      run: flutter pub get
-
-    - name: Build APK
-      run: flutter build apk --release
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: release-apk
-        path: build/app/outputs/flutter-apk/app-release.apk
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
