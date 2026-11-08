@@ -25,12 +25,6 @@ jobs:
         channel: 'stable'
         cache: false
 
-    - name: Clean Android Folder
-      run: rm -rf android
-
-    - name: Recreate android folder
-      run: flutter create --platforms=android .
-
     - name: Install dependencies
       run: flutter pub get
 
