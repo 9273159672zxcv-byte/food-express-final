@@ -44,7 +44,6 @@ class _MainScreenState extends State<MainScreen> {
   
   LatLng? _currentPosition;
   double _heading = 0.0; 
-  bool _isCompassMode = false; // По умолчанию включен режим навигатора (карта крутится)
   
   final MapController _mapController = MapController();
   StreamSubscription<Position>? _positionStreamSubscription;
@@ -73,11 +72,8 @@ class _MainScreenState extends State<MainScreen> {
         setState(() {
           _heading = event.heading!;
         });
-        
-        // Встроенный поворот карты (библиотека сама догрузит углы)
-        if (!_isCompassMode) {
-          _mapController.rotate(-_heading);
-        }
+        // Встроенный поворот карты (она сама догрузит углы, белых полос не будет)
+        _mapController.rotate(-_heading);
       }
     });
   }
@@ -248,7 +244,7 @@ class _MainScreenState extends State<MainScreen> {
     List<LatLng> visibleMarkers = _allMarkers.sublist(_currentTargetIndex);
 
     return Scaffold(
-      backgroundColor: Colors.grey[300], // Серый фон на случай, если мелькнет угол
+      backgroundColor: Colors.grey[200],
       appBar: AppBar(
         backgroundColor: const Color(0xFFE53935),
         title: const Text('Фуд-Экспресс'),
@@ -262,7 +258,10 @@ class _MainScreenState extends State<MainScreen> {
                 options: MapOptions(
                   initialCenter: _currentPosition ?? const LatLng(54.7388, 55.9721),
                   initialZoom: 16.0,
-                  backgroundColor: Colors.grey[300], 
+                  // Отключаем вращение пальцами, карта крутится только от компаса
+                  interactionOptions: const InteractionOptions(
+                    flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag | InteractiveFlag.rotate,
+                  ),
                 ),
                 children: [
                   TileLayer(
@@ -310,18 +309,19 @@ class _MainScreenState extends State<MainScreen> {
                       markers: [
                         Marker(
                           point: _currentPosition!,
-                          width: 40,
-                          height: 40,
-                          child: Transform.rotate(
-                            angle: _isCompassMode ? _heading * (pi / 180) : 0,
-                            child: const Icon(
-                              Icons.navigation,
+                          width: 24,
+                          height: 24,
+                          child: Container(
+                            decoration: BoxDecoration(
                               color: Colors.blue,
-                              size: 40,
-                              shadows: [
-                                Shadow(color: Colors.white, blurRadius: 10),
-                                Shadow(color: Colors.white, blurRadius: 5),
-                              ],
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 3),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.3),
+                                  blurRadius: 5,
+                                )
+                              ]
                             ),
                           ),
                         ),
@@ -375,15 +375,14 @@ class _MainScreenState extends State<MainScreen> {
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(bottom: 80.0),
         child: FloatingActionButton(
-          backgroundColor: _isCompassMode ? Colors.blue : Colors.green,
-          child: Icon(_isCompassMode ? Icons.explore : Icons.navigation, color: Colors.white),
+          backgroundColor: Colors.blue,
+          child: const Icon(Icons.my_location, color: Colors.white),
           onPressed: () {
-            setState(() {
-              _isCompassMode = !_isCompassMode;
-              if (_isCompassMode) {
-                _mapController.rotate(0); // Возвращаем Север вверх в режиме компаса
-              }
-            });
+            if (_currentPosition != null) {
+              _mapController.move(_currentPosition!, 16.0);
+            } else {
+              _startLocationTracking();
+            }
           },
         ),
       ),
