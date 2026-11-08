@@ -72,7 +72,7 @@ class _MainScreenState extends State<MainScreen> {
         setState(() {
           _heading = event.heading!;
         });
-        // Встроенный поворот карты (она сама догрузит углы, белых полос не будет)
+        // Встроенный поворот карты (чтобы дорога всегда была впереди)
         _mapController.rotate(-_heading);
       }
     });
@@ -258,7 +258,7 @@ class _MainScreenState extends State<MainScreen> {
                 options: MapOptions(
                   initialCenter: _currentPosition ?? const LatLng(54.7388, 55.9721),
                   initialZoom: 16.0,
-                  // Отключаем вращение пальцами, карта крутится только от компаса
+                  // Разрешаем вращение карты (оно управляется компасом)
                   interactionOptions: const InteractionOptions(
                     flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag | InteractiveFlag.rotate,
                   ),
