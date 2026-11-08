@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:flutter_map_location_marker/flutter_map_location_marker.dart';
+import 'package:geolocator/geolocator.dart';
 
 void main() {
   runApp(const MyApp());
@@ -38,6 +40,18 @@ class _MainScreenState extends State<MainScreen> {
   static const platform = MethodChannel('com.example.food_express_route/file');
 
   Future<void> _pickAndUploadFile() async {
+    // 1. Принудительно запрашиваем разрешение на геолокацию
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        setState(() {
+          _resultText = 'Вы не разрешили доступ к геолокации';
+        });
+        return;
+      }
+    }
+
     try {
       final String? filePath = await platform.invokeMethod('pickFile');
       if (filePath == null) return;
@@ -60,12 +74,10 @@ class _MainScreenState extends State<MainScreen> {
         List<LatLng> points = [];
         List<LatLng> markerPoints = [];
         
-        // Линия маршрута
         for (var coord in data['route']) {
           points.add(LatLng(coord[1], coord[0])); 
         }
 
-        // Точки для маркеров (в правильном порядке)
         if (data['points'] != null) {
           for (var p in data['points']) {
             var parts = p.split(',');
@@ -118,12 +130,11 @@ class _MainScreenState extends State<MainScreen> {
                     Polyline(
                       points: _routePoints,
                       strokeWidth: 5.0,
-                      color: Colors.blue, // Синяя линия маршрута
+                      color: Colors.blue,
                     ),
                   ],
                 ),
                 MarkerLayer(
-                  // Здесь мы рисуем маркеры с номерами
                   markers: _markers.asMap().entries.map((entry) {
                     int index = entry.key;
                     LatLng point = entry.value;
@@ -138,7 +149,7 @@ class _MainScreenState extends State<MainScreen> {
                         ),
                         child: Center(
                           child: Text(
-                            '${index + 1}', // Номер точки (1, 2, 3...)
+                            '${index + 1}',
                             style: const TextStyle(
                               color: Colors.white, 
                               fontWeight: FontWeight.bold,
@@ -150,6 +161,8 @@ class _MainScreenState extends State<MainScreen> {
                     );
                   }).toList(),
                 ),
+                // Слой геолокации
+                const CurrentLocationLayer(),
               ],
             ),
           ),
