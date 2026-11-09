@@ -55,7 +55,6 @@ class _MainScreenState extends State<MainScreen> {
   static const platform = MethodChannel('com.example.food_express_route/file');
   
   final String _mapboxToken = 'pk.eyJ1IjoicmFpbDc3NyIsImEiOiJjbXc0eTdvY3owMmwxMnlxd3NqdDNqYXFhIn0.QSlooIUtFVn94FW-odWkZQ';
-  final String _ufaCenter = '55.9721,54.7388';
 
   @override
   void initState() {
@@ -353,24 +352,16 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _geocodeAndAddPoint(String address) async {
     setState(() {
       _isLoading = true;
-      _resultText = 'Ищем адрес в радиусе 50 км...';
+      _resultText = 'Ищем адрес...';
     });
 
-    // Если мы не знаем, где находимся, используем центр Уфы
-    double centerLat = _currentPosition?.latitude ?? 54.7388;
-    double centerLng = _currentPosition?.longitude ?? 55.9721;
+    // Умный поиск: если знаем где мы — ищем рядом с нами. Если нет — ищем в Уфе.
+    String proximity = _ufaCenter; 
+    if (_currentPosition != null) {
+      proximity = '${_currentPosition!.longitude},${_currentPosition!.latitude}';
+    }
 
-    // Вычисляем границы 50 км (примерно 0.45 градуса по широте и долготе)
-    double offset = 0.45; 
-    double minLng = centerLng - offset;
-    double minLat = centerLat - offset;
-    double maxLng = centerLng + offset;
-    double maxLat = centerLat + offset;
-
-    // Формат bbox: minLng,minLat,maxLng,maxLat
-    String bbox = '$minLng,$minLat,$maxLng,$maxLat';
-
-    final url = 'https://api.mapbox.com/geocoding/v5/mapbox.places/${Uri.encodeComponent(address)}.json?access_token=$_mapboxToken&limit=1&bbox=$bbox';
+    final url = 'https://api.mapbox.com/geocoding/v5/mapbox.places/${Uri.encodeComponent(address)}.json?access_token=$_mapboxToken&limit=1&proximity=$proximity';
 
     try {
       final response = await http.get(Uri.parse(url));
@@ -390,7 +381,7 @@ class _MainScreenState extends State<MainScreen> {
         } else {
           setState(() {
             _isLoading = false;
-            _resultText = 'Адрес не найден в радиусе 50 км.';
+            _resultText = 'Адрес не найден.';
           });
         }
       }
@@ -720,18 +711,59 @@ class ReorderPointsScreen extends StatefulWidget {
 
 class _ReorderPointsScreenState extends State<ReorderPointsScreen> {
   late List<LatLng> _tempMarkers;
+  List<String> _addresses = [];
+  
+  final String _mapboxToken = 'pk.eyJ1IjoicmFpbDc3NyIsImEiOiJjbXc0eTdvY3owMmwxMnlxd3NqdDNqYXFhIn0.QSlooIUtFVn94FW-odWkZQ';
 
   @override
   void initState() {
     super.initState();
     _tempMarkers = List.from(widget.markers);
+    _addresses = List.filled(_tempMarkers.length, 'Загрузка адреса...');
+    _fetchAddresses();
+  }
+
+  // Получаем текстовые адреса по координатам
+  Future<void> _fetchAddresses() async {
+    for (int i = 0; i < _tempMarkers.length; i++) {
+      final point = _tempMarkers[i];
+      final url = 'https://api.mapbox.com/geocoding/v5/mapbox.places/${point.longitude},${point.latitude}.json?access_token=$_mapboxToken&limit=1';
+
+      try {
+        final response = await http.get(Uri.parse(url));
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data['features'] != null && data['features'].isNotEmpty) {
+            // Берем название места (адрес)
+            String address = data['features'][0]['place_name'] ?? 'Адрес не найден';
+            // Убираем лишнее (страну, регион), оставляем только улицу и дом
+            if (address.contains(',')) {
+               List<String> parts = address.split(',');
+               if (parts.length >= 2) {
+                 address = '${parts[0]}, ${parts[1]}';
+               }
+            }
+            
+            if (mounted) {
+              setState(() {
+                _addresses[i] = address;
+              });
+            }
+          }
+        }
+      } catch (e) {
+        // Если ошибка — оставляем координаты
+      }
+    }
   }
 
   void _moveUp(int index) {
     if (index > 0) {
       setState(() {
         final item = _tempMarkers.removeAt(index);
+        final addr = _addresses.removeAt(index);
         _tempMarkers.insert(index - 1, item);
+        _addresses.insert(index - 1, addr);
       });
     }
   }
@@ -740,7 +772,9 @@ class _ReorderPointsScreenState extends State<ReorderPointsScreen> {
     if (index < _tempMarkers.length - 1) {
       setState(() {
         final item = _tempMarkers.removeAt(index);
+        final addr = _addresses.removeAt(index);
         _tempMarkers.insert(index + 1, item);
+        _addresses.insert(index + 1, addr);
       });
     }
   }
@@ -772,8 +806,12 @@ class _ReorderPointsScreenState extends State<ReorderPointsScreen> {
                 child: Text('${index + 1}', style: const TextStyle(color: Colors.white)),
               ),
               title: Text(
-                'Точка ${index + 1}\n(${_tempMarkers[index].latitude.toStringAsFixed(4)}, ${_tempMarkers[index].longitude.toStringAsFixed(4)})',
-                style: const TextStyle(fontSize: 14),
+                _addresses[index], // Показываем адрес вместо координат
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(
+                '(${_tempMarkers[index].latitude.toStringAsFixed(4)}, ${_tempMarkers[index].longitude.toStringAsFixed(4)})',
+                style: const TextStyle(fontSize: 10, color: Colors.grey),
               ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -783,6 +821,7 @@ class _ReorderPointsScreenState extends State<ReorderPointsScreen> {
                     onPressed: () {
                       setState(() {
                         _tempMarkers.removeAt(index);
+                        _addresses.removeAt(index);
                       });
                     },
                   ),
