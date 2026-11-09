@@ -48,6 +48,7 @@ class _MainScreenState extends State<MainScreen> {
   LatLng? _currentPosition;
   double _heading = 0.0; 
   bool _isRecalculating = false;
+  bool _isPickingOnMap = false;
   
   final MapController _mapController = MapController();
   StreamSubscription<Position>? _positionStreamSubscription;
@@ -250,11 +251,8 @@ class _MainScreenState extends State<MainScreen> {
           return;
         }
       }
-    } catch (e) {
-      // Игнорируем ошибку, обрабатываем ниже
-    }
+    } catch (e) {}
 
-    // Если сервер не ответил, НЕ рисуем прямую линию, а оставляем старую
     setState(() {
       _resultText = 'Нет связи. Едем по старому маршруту.';
     });
@@ -307,7 +305,7 @@ class _MainScreenState extends State<MainScreen> {
       } else {
         setState(() {
           _isLoading = false;
-          _resultText = 'Ошибка сервера: ${response.statusCode}';
+          _resultText = 'Ошибка сервера. Проверьте адреса.';
         });
       }
     } catch (e) {
@@ -316,6 +314,137 @@ class _MainScreenState extends State<MainScreen> {
         _resultText = 'Ошибка: $e';
       });
     }
+  }
+
+  Future<void> _addPointManually() async {
+    final TextEditingController controller = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Добавить точку (текст)'),
+          content: TextField(
+            controller: controller,
+            decoration: const InputDecoration(hintText: 'Например: ул. Ленина 5'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () async {
+                final address = controller.text;
+                if (address.isNotEmpty) {
+                  Navigator.pop(context);
+                  await _geocodeAndAddPoint(address);
+                }
+              },
+              child: const Text('Найти'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _geocodeAndAddPoint(String address) async {
+    setState(() {
+      _isLoading = true;
+      _resultText = 'Ищем адрес...';
+    });
+
+    final url = 'https://api.mapbox.com/geocoding/v5/mapbox.places/${Uri.encodeComponent(address)}.json?access_token=$_mapboxToken&limit=1';
+
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['features'] != null && data['features'].isNotEmpty) {
+          final coords = data['features'][0]['geometry']['coordinates'];
+          final newPoint = LatLng(coords[1], coords[0]);
+          
+          setState(() {
+            _allMarkers.add(newPoint);
+            _isLoading = false;
+            _resultText = 'Точка добавлена! Нажмите "Перестроить"';
+          });
+          
+          _mapController.move(newPoint, 16.0);
+        } else {
+          setState(() {
+            _isLoading = false;
+            _resultText = 'Адрес не найден на карте.';
+          });
+        }
+      }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _resultText = 'Ошибка при поиске адреса.';
+      });
+    }
+  }
+
+  void _enablePickOnMap() {
+    setState(() {
+      _isPickingOnMap = true;
+      _resultText = 'Ткните пальцем в карту, куда добавить точку';
+    });
+  }
+
+  void _handleMapTap(TapPosition tapPosition, LatLng point) {
+    if (!_isPickingOnMap) return;
+
+    setState(() {
+      _isPickingOnMap = false;
+    });
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Добавить точку?'),
+          content: Text('Координаты: ${point.latitude.toStringAsFixed(4)}, ${point.longitude.toStringAsFixed(4)}'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _allMarkers.add(point);
+                  _resultText = 'Точка добавлена! Нажмите "Перестроить"';
+                });
+                Navigator.pop(context);
+              },
+              child: const Text('Добавить'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _openReorderScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ReorderPointsScreen(
+          markers: _allMarkers,
+          onSave: (newMarkers) {
+            setState(() {
+              _allMarkers = newMarkers;
+              _currentTargetIndex = 0; 
+              _totalDistanceKm = 0.0;
+            });
+            _updateRouteForCurrentTarget();
+          },
+        ),
+      ),
+    );
   }
 
   @override
@@ -355,6 +484,7 @@ class _MainScreenState extends State<MainScreen> {
                 options: MapOptions(
                   initialCenter: _currentPosition ?? const LatLng(54.7388, 55.9721),
                   initialZoom: 16.0,
+                  onTap: _handleMapTap,
                   interactionOptions: const InteractionOptions(
                     flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag | InteractiveFlag.rotate,
                   ),
@@ -442,35 +572,83 @@ class _MainScreenState extends State<MainScreen> {
                     ],
                   ),
                   const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE53935),
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(0, 50),
+                      ),
+                      onPressed: _isLoading ? null : _pickAndUploadFile,
+                      child: const Text('ВЫБРАТЬ EXCEL', style: TextStyle(fontSize: 14)),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       Expanded(
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFE53935),
+                            backgroundColor: Colors.blue,
                             foregroundColor: Colors.white,
                             minimumSize: const Size(0, 50),
                           ),
-                          onPressed: _isLoading ? null : _pickAndUploadFile,
-                          child: const Text('ВЫБРАТЬ EXCEL', style: TextStyle(fontSize: 14)),
+                          onPressed: _isLoading ? null : _addPointManually,
+                          child: const Text('+ ТЕКСТОМ', style: TextStyle(fontSize: 12)),
                         ),
                       ),
-                      if (_allMarkers.isNotEmpty) ...[
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
-                              minimumSize: const Size(0, 50),
-                            ),
-                            onPressed: _completeCurrentPoint,
-                            child: const Text('Я НА МЕСТЕ', style: TextStyle(fontSize: 14)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _isPickingOnMap ? Colors.orange : Colors.blue,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(0, 50),
+                          ),
+                          onPressed: _isLoading ? null : _enablePickOnMap,
+                          child: Text(
+                            _isPickingOnMap ? 'ТКНИТЕ...' : 'УКАЗАТЬ НА КАРТЕ',
+                            style: const TextStyle(fontSize: 12),
                           ),
                         ),
-                      ]
+                      ),
                     ],
                   ),
+                  const SizedBox(height: 10),
+                  if (_allMarkers.isNotEmpty) ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.purple,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(0, 50),
+                        ),
+                        onPressed: _openReorderScreen,
+                        child: const Text('СПИСОК ТОЧЕК (СОРТИРОВКА)', style: TextStyle(fontSize: 14)),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(0, 50),
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _currentTargetIndex = 0;
+                            _totalDistanceKm = 0.0;
+                          });
+                          _updateRouteForCurrentTarget();
+                        },
+                        child: const Text('ПЕРЕСТРОИТЬ (ОПТИМИЗИРОВАТЬ)', style: TextStyle(fontSize: 12)),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -490,6 +668,71 @@ class _MainScreenState extends State<MainScreen> {
             }
           },
         ),
+      ),
+    );
+  }
+}
+
+class ReorderPointsScreen extends StatefulWidget {
+  final List<LatLng> markers;
+  final Function(List<LatLng>) onSave;
+
+  const ReorderPointsScreen({Key? key, required this.markers, required this.onSave}) : super(key: key);
+
+  @override
+  State<ReorderPointsScreen> createState() => _ReorderPointsScreenState();
+}
+
+class _ReorderPointsScreenState extends State<ReorderPointsScreen> {
+  late List<LatLng> _tempMarkers;
+
+  @override
+  void initState() {
+    super.initState();
+    _tempMarkers = List.from(widget.markers);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Сортировка точек'),
+        backgroundColor: const Color(0xFFE53935),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.check),
+            onPressed: () {
+              widget.onSave(_tempMarkers);
+              Navigator.pop(context);
+            },
+          ),
+        ],
+      ),
+      body: ReorderableListView.builder(
+        itemCount: _tempMarkers.length,
+        onReorder: (oldIndex, newIndex) {
+          setState(() {
+            if (newIndex > oldIndex) {
+              newIndex -= 1;
+            }
+            final item = _tempMarkers.removeAt(oldIndex);
+            _tempMarkers.insert(newIndex, item);
+          });
+        },
+        itemBuilder: (context, index) {
+          return Card(
+            key: ValueKey(_tempMarkers[index]),
+            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: Colors.red,
+                child: Text('${index + 1}', style: const TextStyle(color: Colors.white)),
+              ),
+              title: Text('Точка ${index + 1}'),
+              trailing: const Icon(Icons.drag_handle),
+            ),
+          );
+        },
       ),
     );
   }
