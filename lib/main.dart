@@ -37,7 +37,6 @@ class _MainScreenState extends State<MainScreen> {
   bool _isLoading = false;
   String _resultText = 'Выберите Excel-файл';
   
-  // Переменные для километража и подсказок
   double _totalDistanceKm = 0.0;
   String _distanceToNextTurn = '';
   IconData _turnIcon = Icons.straight;
@@ -97,7 +96,7 @@ class _MainScreenState extends State<MainScreen> {
         
         _checkArrival();
         _checkOffRoute();
-        _updateTurnHint(); // Обновляем подсказки поворотов
+        _updateTurnHint();
         
         if (_currentPosition != null) {
           _mapController.move(_currentPosition!, _mapController.camera.zoom);
@@ -107,11 +106,9 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
-  // Обновление стрелки поворота (берем направление на следующую точку)
   void _updateTurnHint() {
     if (_currentPosition == null || _routePoints.isEmpty || _currentTargetIndex >= _allMarkers.length) return;
 
-    // Ищем следующую точку на маршруте, до которой далеко
     LatLng? nextPoint;
     for (int i = 0; i < _routePoints.length; i++) {
       final dist = Geolocator.distanceBetween(
@@ -122,7 +119,6 @@ class _MainScreenState extends State<MainScreen> {
         nextPoint = _routePoints[i];
         final distanceToTurn = dist;
         
-        // Вычисляем угол между нашим направлением и направлением на точку
         final bearingToPoint = Geolocator.bearingBetween(
           _currentPosition!.latitude, _currentPosition!.longitude,
           nextPoint.latitude, nextPoint.longitude,
@@ -238,8 +234,6 @@ class _MainScreenState extends State<MainScreen> {
           List<LatLng> roadPoints = geometry.map((c) => LatLng(c[1], c[0])).toList();
           
           final double distanceInMeters = route['distance'];
-          
-          // Прибавляем к общему пробегу (делим на 1000 для км)
           _totalDistanceKm += distanceInMeters / 1000;
           
           setState(() {
@@ -256,13 +250,13 @@ class _MainScreenState extends State<MainScreen> {
           return;
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      // Игнорируем ошибку, обрабатываем ниже
+    }
 
+    // Если сервер не ответил, НЕ рисуем прямую линию, а оставляем старую
     setState(() {
-      _routePoints = [start, target];
-      _resultText = 'Едем к точке ${_currentTargetIndex + 1} (по прямой)';
-      final distanceInMeters = Geolocator.distanceBetween(start.latitude, start.longitude, target.latitude, target.longitude);
-      _totalDistanceKm += distanceInMeters / 1000;
+      _resultText = 'Нет связи. Едем по старому маршруту.';
     });
   }
 
@@ -279,7 +273,7 @@ class _MainScreenState extends State<MainScreen> {
       setState(() {
         _isLoading = true;
         _resultText = 'Построение маршрута...';
-        _totalDistanceKm = 0.0; // Сбрасываем счетчик при новом файле
+        _totalDistanceKm = 0.0;
       });
 
       File file = File(filePath);
@@ -337,7 +331,6 @@ class _MainScreenState extends State<MainScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // ВЕРХНЯЯ ПАНЕЛЬ СО СТРЕЛКОЙ ПОВОРОТА
             if (_distanceToNextTurn.isNotEmpty)
               Container(
                 padding: const EdgeInsets.all(10),
