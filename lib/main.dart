@@ -55,6 +55,7 @@ class _MainScreenState extends State<MainScreen> {
   static const platform = MethodChannel('com.example.food_express_route/file');
   
   final String _mapboxToken = 'pk.eyJ1IjoicmFpbDc3NyIsImEiOiJjbXc0eTdvY3owMmwxMnlxd3NqdDNqYXFhIn0.QSlooIUtFVn94FW-odWkZQ';
+  final String _ufaCenter = '55.9721,54.7388';
 
   @override
   void initState() {
@@ -352,10 +353,24 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _geocodeAndAddPoint(String address) async {
     setState(() {
       _isLoading = true;
-      _resultText = 'Ищем адрес...';
+      _resultText = 'Ищем адрес в радиусе 50 км...';
     });
 
-    final url = 'https://api.mapbox.com/geocoding/v5/mapbox.places/${Uri.encodeComponent(address)}.json?access_token=$_mapboxToken&limit=1';
+    // Если мы не знаем, где находимся, используем центр Уфы
+    double centerLat = _currentPosition?.latitude ?? 54.7388;
+    double centerLng = _currentPosition?.longitude ?? 55.9721;
+
+    // Вычисляем границы 50 км (примерно 0.45 градуса по широте и долготе)
+    double offset = 0.45; 
+    double minLng = centerLng - offset;
+    double minLat = centerLat - offset;
+    double maxLng = centerLng + offset;
+    double maxLat = centerLat + offset;
+
+    // Формат bbox: minLng,minLat,maxLng,maxLat
+    String bbox = '$minLng,$minLat,$maxLng,$maxLat';
+
+    final url = 'https://api.mapbox.com/geocoding/v5/mapbox.places/${Uri.encodeComponent(address)}.json?access_token=$_mapboxToken&limit=1&bbox=$bbox';
 
     try {
       final response = await http.get(Uri.parse(url));
@@ -375,7 +390,7 @@ class _MainScreenState extends State<MainScreen> {
         } else {
           setState(() {
             _isLoading = false;
-            _resultText = 'Адрес не найден на карте.';
+            _resultText = 'Адрес не найден в радиусе 50 км.';
           });
         }
       }
