@@ -19,7 +19,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Фуд-Экспресс',
+      title: 'Навигатор курьера',
       theme: ThemeData(primarySwatch: Colors.red),
       home: const MainScreen(),
     );
@@ -455,7 +455,27 @@ class _MainScreenState extends State<MainScreen> {
       backgroundColor: Colors.grey[200],
       appBar: AppBar(
         backgroundColor: const Color(0xFFE53935),
-        title: const Text('Фуд-Экспресс'),
+        toolbarHeight: 55,
+        title: const Text(
+          'Навигатор курьера', 
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+        ),
+        actions: [
+          if (_allMarkers.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  minimumSize: const Size(0, 36),
+                ),
+                onPressed: _completeCurrentPoint,
+                child: const Text('Я НА МЕСТЕ', style: TextStyle(fontSize: 12)),
+              ),
+            ),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -692,6 +712,24 @@ class _ReorderPointsScreenState extends State<ReorderPointsScreen> {
     _tempMarkers = List.from(widget.markers);
   }
 
+  void _moveUp(int index) {
+    if (index > 0) {
+      setState(() {
+        final item = _tempMarkers.removeAt(index);
+        _tempMarkers.insert(index - 1, item);
+      });
+    }
+  }
+
+  void _moveDown(int index) {
+    if (index < _tempMarkers.length - 1) {
+      setState(() {
+        final item = _tempMarkers.removeAt(index);
+        _tempMarkers.insert(index + 1, item);
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -708,28 +746,41 @@ class _ReorderPointsScreenState extends State<ReorderPointsScreen> {
           ),
         ],
       ),
-      body: ReorderableListView.builder(
+      body: ListView.builder(
         itemCount: _tempMarkers.length,
-        onReorder: (oldIndex, newIndex) {
-          setState(() {
-            if (newIndex > oldIndex) {
-              newIndex -= 1;
-            }
-            final item = _tempMarkers.removeAt(oldIndex);
-            _tempMarkers.insert(newIndex, item);
-          });
-        },
         itemBuilder: (context, index) {
           return Card(
-            key: ValueKey(_tempMarkers[index]),
             margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             child: ListTile(
               leading: CircleAvatar(
                 backgroundColor: Colors.red,
                 child: Text('${index + 1}', style: const TextStyle(color: Colors.white)),
               ),
-              title: Text('Точка ${index + 1}'),
-              trailing: const Icon(Icons.drag_handle),
+              title: Text(
+                'Точка ${index + 1}\n(${_tempMarkers[index].latitude.toStringAsFixed(4)}, ${_tempMarkers[index].longitude.toStringAsFixed(4)})',
+                style: const TextStyle(fontSize: 14),
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: () {
+                      setState(() {
+                        _tempMarkers.removeAt(index);
+                      });
+                    },
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.arrow_upward, color: index == 0 ? Colors.grey : Colors.blue),
+                    onPressed: index == 0 ? null : () => _moveUp(index),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.arrow_downward, color: index == _tempMarkers.length - 1 ? Colors.grey : Colors.blue),
+                    onPressed: index == _tempMarkers.length - 1 ? null : () => _moveDown(index),
+                  ),
+                ],
+              ),
             ),
           );
         },
