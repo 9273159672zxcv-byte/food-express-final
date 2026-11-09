@@ -25,11 +25,7 @@ jobs:
         channel: 'stable'
         cache: false
 
-    # 1. Создаем папку android
-    - name: Recreate android folder
-      run: flutter create --platforms=android .
-
-    # 2. Перезаписываем build.gradle.kts (лечим 18-ю строку)
+    # ПРИНУДИТЕЛЬНО ПЕРЕЗАПИСЫВАЕМ BUILD.GRADLE.KTS
     - name: Fix build.gradle.kts
       run: |
         rm -f android/app/build.gradle.kts
@@ -39,13 +35,16 @@ jobs:
             id("kotlin-android")
             id("dev.flutter.flutter-gradle-plugin")
         }
+
         android {
             namespace = "com.example.food_express_route"
             compileSdk = 36
+
             compileOptions {
                 sourceCompatibility = JavaVersion.VERSION_1_8
                 targetCompatibility = JavaVersion.VERSION_1_8
             }
+
             defaultConfig {
                 applicationId = "com.example.food_express_route"
                 minSdk = 21
@@ -53,23 +52,26 @@ jobs:
                 versionCode = 1
                 versionName = "1.0"
             }
+
             buildTypes {
                 release {
                     signingConfig = signingConfigs.getByName("debug")
                 }
             }
         }
+
         kotlin {
             compilerOptions {
                 jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8
             }
         }
+
         flutter {
             source = "../.."
         }
         EOF
 
-    # 3. Перезаписываем манифест (лечим v1 embedding)
+    # ПРИНУДИТЕЛЬНО ПЕРЕЗАПИСЫВАЕМ МАНИФЕСТ
     - name: Fix Android Manifest
       run: |
         rm -f android/app/src/main/AndroidManifest.xml
@@ -78,12 +80,15 @@ jobs:
             <uses-permission android:name="android.permission.INTERNET"/>
             <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
             <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
             <application
                 android:label="Фуд-Экспресс"
                 android:usesCleartextTraffic="true">
+                
                 <meta-data
                     android:name="flutterEmbedding"
                     android:value="2" />
+
                 <activity
                     android:name=".MainActivity"
                     android:exported="true"
