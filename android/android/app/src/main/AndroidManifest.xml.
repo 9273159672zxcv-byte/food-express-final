@@ -7,6 +7,7 @@
         android:label="Фуд-Экспресс"
         android:usesCleartextTraffic="true">
         
+        <!-- ВОТ ЭТА СТРОЧКА ЛЕЧИТ ОШИБКУ -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
