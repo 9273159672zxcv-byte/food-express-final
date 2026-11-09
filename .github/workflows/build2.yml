@@ -25,6 +25,82 @@ jobs:
         channel: 'stable'
         cache: false
 
+    # 1. Создаем папку android
+    - name: Recreate android folder
+      run: flutter create --platforms=android .
+
+    # 2. Перезаписываем build.gradle.kts (лечим 18-ю строку)
+    - name: Fix build.gradle.kts
+      run: |
+        rm -f android/app/build.gradle.kts
+        cat << 'EOF' > android/app/build.gradle.kts
+        plugins {
+            id("com.android.application")
+            id("kotlin-android")
+            id("dev.flutter.flutter-gradle-plugin")
+        }
+        android {
+            namespace = "com.example.food_express_route"
+            compileSdk = 36
+            compileOptions {
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                targetCompatibility = JavaVersion.VERSION_1_8
+            }
+            defaultConfig {
+                applicationId = "com.example.food_express_route"
+                minSdk = 21
+                targetSdk = 36
+                versionCode = 1
+                versionName = "1.0"
+            }
+            buildTypes {
+                release {
+                    signingConfig = signingConfigs.getByName("debug")
+                }
+            }
+        }
+        kotlin {
+            compilerOptions {
+                jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8
+            }
+        }
+        flutter {
+            source = "../.."
+        }
+        EOF
+
+    # 3. Перезаписываем манифест (лечим v1 embedding)
+    - name: Fix Android Manifest
+      run: |
+        rm -f android/app/src/main/AndroidManifest.xml
+        cat << 'EOF' > android/app/src/main/AndroidManifest.xml
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET"/>
+            <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+            <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+            <application
+                android:label="Фуд-Экспресс"
+                android:usesCleartextTraffic="true">
+                <meta-data
+                    android:name="flutterEmbedding"
+                    android:value="2" />
+                <activity
+                    android:name=".MainActivity"
+                    android:exported="true"
+                    android:launchMode="singleTop"
+                    android:theme="@style/LaunchTheme"
+                    android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+                    android:hardwareAccelerated="true"
+                    android:windowSoftInputMode="adjustResize">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN"/>
+                        <category android:name="android.intent.category.LAUNCHER"/>
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>
+        EOF
+
     - name: Install dependencies
       run: flutter pub get
 
