@@ -28,7 +28,7 @@ jobs:
     - name: Recreate android folder
       run: flutter create --platforms=android .
 
-    # 1. Исправляем манифест
+    # 1. Полностью перезаписываем манифест
     - name: Fix Android Manifest
       run: |
         cat << 'EOF' > android/app/src/main/AndroidManifest.xml
@@ -62,12 +62,50 @@ jobs:
         </manifest>
         EOF
 
-    # 2. Исправляем build.gradle.kts (заменяем неправильную строку)
+    # 2. Полностью перезаписываем build.gradle.kts правильным кодом
     - name: Fix build.gradle.kts
       run: |
-        sed -i 's/minSdkVersion flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle.kts
-        sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdk = 36/g' android/app/build.gradle.kts
-        sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
+        cat << 'EOF' > android/app/build.gradle.kts
+        plugins {
+            id("com.android.application")
+            id("kotlin-android")
+            id("dev.flutter.flutter-gradle-plugin")
+        }
+
+        android {
+            namespace = "com.example.food_express_route"
+            compileSdk = 36
+
+            compileOptions {
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                targetCompatibility = JavaVersion.VERSION_1_8
+            }
+
+            defaultConfig {
+                applicationId = "com.example.food_express_route"
+                minSdk = 21
+                targetSdk = 36
+                versionCode = 1
+                versionName = "1.0"
+            }
+
+            buildTypes {
+                release {
+                    signingConfig = signingConfigs.getByName("debug")
+                }
+            }
+        }
+
+        kotlin {
+            compilerOptions {
+                jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8
+            }
+        }
+
+        flutter {
+            source = "../.."
+        }
+        EOF
 
     - name: Install dependencies
       run: flutter pub get
