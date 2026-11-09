@@ -25,12 +25,11 @@ jobs:
         channel: 'stable'
         cache: false
 
-    # 1. Создаем папку android заново
     - name: Recreate android folder
       run: flutter create --platforms=android .
 
-    # 2. Принудительно перезаписываем манифест
-    - name: Fix Manifest
+    # 1. Исправляем манифест
+    - name: Fix Android Manifest
       run: |
         cat << 'EOF' > android/app/src/main/AndroidManifest.xml
         <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -63,9 +62,10 @@ jobs:
         </manifest>
         EOF
 
-    # 3. Принудительно перезаписываем build.gradle.kts
+    # 2. Полностью перезаписываем build.gradle.kts
     - name: Fix build.gradle.kts
       run: |
+        rm -f android/app/build.gradle.kts
         cat << 'EOF' > android/app/build.gradle.kts
         plugins {
             id("com.android.application")
