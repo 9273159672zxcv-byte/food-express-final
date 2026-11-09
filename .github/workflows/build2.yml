@@ -28,7 +28,7 @@ jobs:
     - name: Recreate android folder
       run: flutter create --platforms=android .
 
-    # ПРИНУДИТЕЛЬНО ПЕРЕЗАПИСЫВАЕМ МАНИФЕСТ
+    # 1. Исправляем манифест
     - name: Fix Android Manifest
       run: |
         cat << 'EOF' > android/app/src/main/AndroidManifest.xml
@@ -61,6 +61,13 @@ jobs:
             </application>
         </manifest>
         EOF
+
+    # 2. Исправляем build.gradle.kts (заменяем неправильную строку)
+    - name: Fix build.gradle.kts
+      run: |
+        sed -i 's/minSdkVersion flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle.kts
+        sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdk = 36/g' android/app/build.gradle.kts
+        sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
 
     - name: Install dependencies
       run: flutter pub get
