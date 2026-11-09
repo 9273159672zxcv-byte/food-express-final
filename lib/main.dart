@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -36,11 +37,18 @@ class _MainScreenState extends State<MainScreen> {
   bool _isLoading = false;
   String _resultText = 'Выберите Excel-файл';
   
+  // Переменные для километража и подсказок
+  double _totalDistanceKm = 0.0;
+  String _distanceToNextTurn = '';
+  IconData _turnIcon = Icons.straight;
+  
   List<LatLng> _routePoints = []; 
   List<LatLng> _allMarkers = []; 
   int _currentTargetIndex = 0; 
   
   LatLng? _currentPosition;
+  double _heading = 0.0; 
+  bool _isRecalculating = false;
   
   final MapController _mapController = MapController();
   StreamSubscription<Position>? _positionStreamSubscription;
@@ -76,37 +84,104 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    // Пытаемся получить текущую позицию
-    try {
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 10), // Ждем не больше 10 секунд
-      );
+    _positionStreamSubscription = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 2),
+    ).listen((Position position) {
       if (mounted) {
         setState(() {
-          _currentPosition = LatLng(pos.latitude, pos.longitude);
-          _resultText = 'Геолокация найдена';
+          _currentPosition = LatLng(position.latitude, position.longitude);
+          if (position.heading >= 0 && position.heading <= 360) {
+            _heading = position.heading;
+          }
         });
-        _mapController.move(_currentPosition!, 16.0);
+        
+        _checkArrival();
+        _checkOffRoute();
+        _updateTurnHint(); // Обновляем подсказки поворотов
+        
+        if (_currentPosition != null) {
+          _mapController.move(_currentPosition!, _mapController.camera.zoom);
+          _mapController.rotate(-_heading);
+        }
       }
-    } catch (e) {
-      // Если не смогли найти за 10 секунд, просто оставляем карту на Уфе
-      if (mounted) {
-        setState(() => _resultText = 'Не удалось определить GPS. Проверьте связь.');
+    });
+  }
+
+  // Обновление стрелки поворота (берем направление на следующую точку)
+  void _updateTurnHint() {
+    if (_currentPosition == null || _routePoints.isEmpty || _currentTargetIndex >= _allMarkers.length) return;
+
+    // Ищем следующую точку на маршруте, до которой далеко
+    LatLng? nextPoint;
+    for (int i = 0; i < _routePoints.length; i++) {
+      final dist = Geolocator.distanceBetween(
+        _currentPosition!.latitude, _currentPosition!.longitude,
+        _routePoints[i].latitude, _routePoints[i].longitude,
+      );
+      if (dist > 20) {
+        nextPoint = _routePoints[i];
+        final distanceToTurn = dist;
+        
+        // Вычисляем угол между нашим направлением и направлением на точку
+        final bearingToPoint = Geolocator.bearingBetween(
+          _currentPosition!.latitude, _currentPosition!.longitude,
+          nextPoint.latitude, nextPoint.longitude,
+        );
+        
+        double angleDiff = (bearingToPoint - _heading).abs();
+        if (angleDiff > 180) angleDiff = 360 - angleDiff;
+
+        setState(() {
+          if (distanceToTurn > 50) {
+            _distanceToNextTurn = 'Через ${distanceToTurn.toInt()} м';
+            if (angleDiff < 30) {
+              _turnIcon = Icons.straight;
+            } else if (bearingToPoint > _heading) {
+              _turnIcon = Icons.turn_right;
+            } else {
+              _turnIcon = Icons.turn_left;
+            }
+          } else {
+            _distanceToNextTurn = '';
+          }
+        });
+        break;
+      }
+    }
+  }
+
+  void _checkOffRoute() {
+    if (_routePoints.isEmpty || _currentPosition == null || _isRecalculating) return;
+    if (_currentTargetIndex >= _allMarkers.length) return;
+
+    double minDistance = double.infinity;
+    for (var point in _routePoints) {
+      final distance = Geolocator.distanceBetween(
+        _currentPosition!.latitude, _currentPosition!.longitude,
+        point.latitude, point.longitude,
+      );
+      if (distance < minDistance) {
+        minDistance = distance;
       }
     }
 
-    // Начинаем следить за перемещением
-    _positionStreamSubscription = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 5),
-    ).listen((Position position) {
-      if (mounted) {
-        setState(() => _currentPosition = LatLng(position.latitude, position.longitude));
-        _checkArrival();
-        if (_currentPosition != null) {
-          _mapController.move(_currentPosition!, _mapController.camera.zoom);
-        }
-      }
+    if (minDistance > 50) {
+      _recalculateRoute();
+    }
+  }
+
+  Future<void> _recalculateRoute() async {
+    if (_currentTargetIndex >= _allMarkers.length || _currentPosition == null) return;
+    
+    setState(() {
+      _isRecalculating = true;
+      _resultText = 'Перестраиваем маршрут...';
+    });
+
+    await _updateRouteForCurrentTarget();
+    
+    setState(() {
+      _isRecalculating = false;
     });
   }
 
@@ -135,6 +210,7 @@ class _MainScreenState extends State<MainScreen> {
         _resultText = 'Вы посетили все точки! Маршрут завершен.';
         _allMarkers.clear();
         _routePoints.clear();
+        _distanceToNextTurn = '';
       });
     }
   }
@@ -145,7 +221,10 @@ class _MainScreenState extends State<MainScreen> {
     final target = _allMarkers[_currentTargetIndex];
     final start = _currentPosition!;
 
-    setState(() => _resultText = 'Строим маршрут до точки ${_currentTargetIndex + 1}...');
+    setState(() {
+      _resultText = 'Строим маршрут до точки ${_currentTargetIndex + 1}...';
+      _distanceToNextTurn = '';
+    });
 
     final url = 'https://api.mapbox.com/directions/v5/mapbox/driving/${start.longitude},${start.latitude};${target.longitude},${target.latitude}?geometries=geojson&access_token=$_mapboxToken';
 
@@ -154,8 +233,14 @@ class _MainScreenState extends State<MainScreen> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['routes'] != null && data['routes'].isNotEmpty) {
-          final geometry = data['routes'][0]['geometry']['coordinates'] as List;
+          final route = data['routes'][0];
+          final geometry = route['geometry']['coordinates'] as List;
           List<LatLng> roadPoints = geometry.map((c) => LatLng(c[1], c[0])).toList();
+          
+          final double distanceInMeters = route['distance'];
+          
+          // Прибавляем к общему пробегу (делим на 1000 для км)
+          _totalDistanceKm += distanceInMeters / 1000;
           
           setState(() {
             _routePoints = roadPoints; 
@@ -176,6 +261,8 @@ class _MainScreenState extends State<MainScreen> {
     setState(() {
       _routePoints = [start, target];
       _resultText = 'Едем к точке ${_currentTargetIndex + 1} (по прямой)';
+      final distanceInMeters = Geolocator.distanceBetween(start.latitude, start.longitude, target.latitude, target.longitude);
+      _totalDistanceKm += distanceInMeters / 1000;
     });
   }
 
@@ -192,6 +279,7 @@ class _MainScreenState extends State<MainScreen> {
       setState(() {
         _isLoading = true;
         _resultText = 'Построение маршрута...';
+        _totalDistanceKm = 0.0; // Сбрасываем счетчик при новом файле
       });
 
       File file = File(filePath);
@@ -249,14 +337,33 @@ class _MainScreenState extends State<MainScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            // ВЕРХНЯЯ ПАНЕЛЬ СО СТРЕЛКОЙ ПОВОРОТА
+            if (_distanceToNextTurn.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(10),
+                color: Colors.blue,
+                width: double.infinity,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(_turnIcon, color: Colors.white, size: 40),
+                    const SizedBox(width: 10),
+                    Text(
+                      _distanceToNextTurn,
+                      style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+            
             Expanded(
               child: FlutterMap(
                 mapController: _mapController,
                 options: MapOptions(
-                  initialCenter: const LatLng(54.7388, 55.9721),
-                  initialZoom: 12.0,
+                  initialCenter: _currentPosition ?? const LatLng(54.7388, 55.9721),
+                  initialZoom: 16.0,
                   interactionOptions: const InteractionOptions(
-                    flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag,
+                    flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag | InteractiveFlag.rotate,
                   ),
                 ),
                 children: [
@@ -331,7 +438,16 @@ class _MainScreenState extends State<MainScreen> {
               color: Colors.white,
               child: Column(
                 children: [
-                  Text(_resultText, style: const TextStyle(fontSize: 14)),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(_resultText, style: const TextStyle(fontSize: 14)),
+                      Text(
+                        'Всего: ${_totalDistanceKm.toStringAsFixed(1)} км', 
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 10),
                   Row(
                     children: [
