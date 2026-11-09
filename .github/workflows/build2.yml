@@ -25,7 +25,11 @@ jobs:
         channel: 'stable'
         cache: false
 
-    # ПРИНУДИТЕЛЬНО ПЕРЕЗАПИСЫВАЕМ BUILD.GRADLE.KTS
+    # 1. Создаем папку android (она нужна для файлов ниже)
+    - name: Recreate android folder
+      run: flutter create --platforms=android .
+
+    # 2. Перезаписываем build.gradle.kts
     - name: Fix build.gradle.kts
       run: |
         rm -f android/app/build.gradle.kts
@@ -71,7 +75,7 @@ jobs:
         }
         EOF
 
-    # ПРИНУДИТЕЛЬНО ПЕРЕЗАПИСЫВАЕМ МАНИФЕСТ
+    # 3. Перезаписываем манифест
     - name: Fix Android Manifest
       run: |
         rm -f android/app/src/main/AndroidManifest.xml
