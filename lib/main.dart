@@ -41,6 +41,9 @@ class _MainScreenState extends State<MainScreen> {
   String _distanceToNextTurn = '';
   IconData _turnIcon = Icons.straight;
   
+  double _currentSpeed = 0.0;
+  String _timeToTarget = '';
+  
   List<LatLng> _routePoints = []; 
   List<LatLng> _allMarkers = []; 
   int _currentTargetIndex = 0; 
@@ -55,6 +58,7 @@ class _MainScreenState extends State<MainScreen> {
   static const platform = MethodChannel('com.example.food_express_route/file');
   
   final String _mapboxToken = 'pk.eyJ1IjoicmFpbDc3NyIsImEiOiJjbXc0eTdvY3owMmwxMnlxd3NqdDNqYXFhIn0.QSlooIUtFVn94FW-odWkZQ';
+  final String _ufaCenter = '55.9721,54.7388';
 
   @override
   void initState() {
@@ -84,12 +88,30 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 5),
+      );
+      if (mounted) {
+        setState(() {
+          _currentPosition = LatLng(pos.latitude, pos.longitude);
+          _resultText = 'Готов к работе!';
+        });
+        _mapController.move(_currentPosition!, 16.0);
+      }
+    } catch (e) {
+      setState(() => _resultText = 'Ждем сигнал GPS...');
+    }
+
     _positionStreamSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 2),
     ).listen((Position position) {
       if (mounted) {
         setState(() {
           _currentPosition = LatLng(position.latitude, position.longitude);
+          _currentSpeed = position.speed * 3.6;
+
           if (position.heading >= 0 && position.heading <= 360) {
             _heading = position.heading;
           }
@@ -208,6 +230,7 @@ class _MainScreenState extends State<MainScreen> {
         _allMarkers.clear();
         _routePoints.clear();
         _distanceToNextTurn = '';
+        _timeToTarget = '';
       });
     }
   }
@@ -235,11 +258,15 @@ class _MainScreenState extends State<MainScreen> {
           List<LatLng> roadPoints = geometry.map((c) => LatLng(c[1], c[0])).toList();
           
           final double distanceInMeters = route['distance'];
+          final double durationInSeconds = route['duration'];
           _totalDistanceKm += distanceInMeters / 1000;
+          
+          int minutes = (durationInSeconds / 60).round();
           
           setState(() {
             _routePoints = roadPoints; 
             _resultText = 'Едем к точке ${_currentTargetIndex + 1}';
+            _timeToTarget = '${minutes} мин';
           });
           
           _mapController.fitCamera(
@@ -355,7 +382,6 @@ class _MainScreenState extends State<MainScreen> {
       _resultText = 'Ищем адрес...';
     });
 
-    // Умный поиск: если знаем где мы — ищем рядом с нами. Если нет — ищем в Уфе.
     String proximity = _ufaCenter; 
     if (_currentPosition != null) {
       proximity = '${_currentPosition!.longitude},${_currentPosition!.latitude}';
@@ -461,10 +487,31 @@ class _MainScreenState extends State<MainScreen> {
       backgroundColor: Colors.grey[200],
       appBar: AppBar(
         backgroundColor: const Color(0xFFE53935),
-        toolbarHeight: 55,
-        title: const Text(
-          'Навигатор курьера', 
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+        toolbarHeight: 70,
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '${_currentSpeed.toStringAsFixed(0)}',
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                const Text('км/ч', style: TextStyle(fontSize: 10, color: Colors.white70)),
+              ],
+            ),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  _timeToTarget.isNotEmpty ? _timeToTarget : '--',
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                const Text('в пути', style: TextStyle(fontSize: 10, color: Colors.white70)),
+              ],
+            ),
+          ],
         ),
         actions: [
           if (_allMarkers.isNotEmpty)
@@ -483,14 +530,98 @@ class _MainScreenState extends State<MainScreen> {
             ),
         ],
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            if (_distanceToNextTurn.isNotEmpty)
-              Container(
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: _currentPosition ?? const LatLng(54.7388, 55.9721),
+                initialZoom: 16.0,
+                onTap: _handleMapTap,
+                interactionOptions: const InteractionOptions(
+                  flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag | InteractiveFlag.rotate,
+                ),
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.example.food_express_route',
+                ),
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _routePoints,
+                      strokeWidth: 6.0,
+                      color: Colors.blue,
+                    ),
+                  ],
+                ),
+                MarkerLayer(
+                  markers: visibleMarkers.asMap().entries.map((entry) {
+                    int originalIndex = entry.key + _currentTargetIndex;
+                    LatLng point = entry.value;
+                    return Marker(
+                      point: point,
+                      width: 30,
+                      height: 30,
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Center(
+                          child: Text(
+                            '${originalIndex + 1}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                if (_currentPosition != null)
+                  MarkerLayer(
+                    markers: [
+                      Marker(
+                        point: _currentPosition!,
+                        width: 24,
+                        height: 24,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.blue,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 3),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.3),
+                                blurRadius: 5,
+                              )
+                            ]
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+          
+          if (_distanceToNextTurn.isNotEmpty)
+            Positioned(
+              top: 10,
+              left: 10,
+              right: 10,
+              child: Container(
                 padding: const EdgeInsets.all(10),
-                color: Colors.blue,
-                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.blue,
+                  borderRadius: BorderRadius.circular(10),
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -503,197 +634,177 @@ class _MainScreenState extends State<MainScreen> {
                   ],
                 ),
               ),
-            
-            Expanded(
-              child: FlutterMap(
-                mapController: _mapController,
-                options: MapOptions(
-                  initialCenter: _currentPosition ?? const LatLng(54.7388, 55.9721),
-                  initialZoom: 16.0,
-                  onTap: _handleMapTap,
-                  interactionOptions: const InteractionOptions(
-                    flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag | InteractiveFlag.rotate,
-                  ),
+            ),
+
+          Positioned(
+            right: 10,
+            bottom: 200,
+            child: Column(
+              children: [
+                FloatingActionButton(
+                  mini: true,
+                  backgroundColor: Colors.white,
+                  child: const Icon(Icons.add, color: Colors.black),
+                  onPressed: () {
+                    _mapController.move(_mapController.camera.center, _mapController.camera.zoom + 1);
+                  },
                 ),
-                children: [
-                  TileLayer(
-                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'com.example.food_express_route',
-                  ),
-                  PolylineLayer(
-                    polylines: [
-                      Polyline(
-                        points: _routePoints,
-                        strokeWidth: 6.0,
-                        color: Colors.blue,
-                      ),
-                    ],
-                  ),
-                  MarkerLayer(
-                    markers: visibleMarkers.asMap().entries.map((entry) {
-                      int originalIndex = entry.key + _currentTargetIndex;
-                      LatLng point = entry.value;
-                      return Marker(
-                        point: point,
-                        width: 30,
-                        height: 30,
-                        child: Container(
-                          decoration: const BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Center(
-                            child: Text(
-                              '${originalIndex + 1}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  if (_currentPosition != null)
-                    MarkerLayer(
-                      markers: [
-                        Marker(
-                          point: _currentPosition!,
-                          width: 24,
-                          height: 24,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.blue,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 3),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.3),
-                                  blurRadius: 5,
-                                )
-                              ]
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                const SizedBox(height: 10),
+                FloatingActionButton(
+                  mini: true,
+                  backgroundColor: Colors.white,
+                  child: const Icon(Icons.remove, color: Colors.black),
+                  onPressed: () {
+                    _mapController.move(_mapController.camera.center, _mapController.camera.zoom - 1);
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              height: 250,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                boxShadow: [
+                  BoxShadow(color: Colors.black26, blurRadius: 10, spreadRadius: 2),
                 ],
               ),
-            ),
-            Container(
-              padding: const EdgeInsets.all(10),
-              color: Colors.white,
               child: Column(
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(_resultText, style: const TextStyle(fontSize: 14)),
-                      Text(
-                        'Всего: ${_totalDistanceKm.toStringAsFixed(1)} км', 
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE53935),
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size(0, 50),
-                      ),
-                      onPressed: _isLoading ? null : _pickAndUploadFile,
-                      child: const Text('ВЫБРАТЬ EXCEL', style: TextStyle(fontSize: 14)),
+                  Container(
+                    margin: const EdgeInsets.only(top: 10, bottom: 10),
+                    width: 50,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            foregroundColor: Colors.white,
-                            minimumSize: const Size(0, 50),
+                  
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(_resultText, style: const TextStyle(fontSize: 14)),
+                              Text(
+                                'Всего: ${_totalDistanceKm.toStringAsFixed(1)} км', 
+                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
+                              ),
+                            ],
                           ),
-                          onPressed: _isLoading ? null : _addPointManually,
-                          child: const Text('+ ТЕКСТОМ', style: TextStyle(fontSize: 12)),
-                        ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFE53935),
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size(0, 50),
+                              ),
+                              onPressed: _isLoading ? null : _pickAndUploadFile,
+                              child: const Text('ВЫБРАТЬ EXCEL', style: TextStyle(fontSize: 14)),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blue,
+                                    foregroundColor: Colors.white,
+                                    minimumSize: const Size(0, 50),
+                                  ),
+                                  onPressed: _isLoading ? null : _addPointManually,
+                                  child: const Text('+ ТЕКСТОМ', style: TextStyle(fontSize: 12)),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: _isPickingOnMap ? Colors.orange : Colors.blue,
+                                    foregroundColor: Colors.white,
+                                    minimumSize: const Size(0, 50),
+                                  ),
+                                  onPressed: _isLoading ? null : _enablePickOnMap,
+                                  child: Text(
+                                    _isPickingOnMap ? 'ТКНИТЕ...' : 'УКАЗАТЬ НА КАРТЕ',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          if (_allMarkers.isNotEmpty) ...[
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.purple,
+                                  foregroundColor: Colors.white,
+                                  minimumSize: const Size(0, 50),
+                                ),
+                                onPressed: _openReorderScreen,
+                                child: const Text('СПИСОК ТОЧЕК (СОРТИРОВКА)', style: TextStyle(fontSize: 14)),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                  foregroundColor: Colors.white,
+                                  minimumSize: const Size(0, 50),
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _currentTargetIndex = 0;
+                                    _totalDistanceKm = 0.0;
+                                  });
+                                  _updateRouteForCurrentTarget();
+                                },
+                                child: const Text('ПЕРЕСТРОИТЬ (ОПТИМИЗИРОВАТЬ)', style: TextStyle(fontSize: 12)),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _isPickingOnMap ? Colors.orange : Colors.blue,
-                            foregroundColor: Colors.white,
-                            minimumSize: const Size(0, 50),
-                          ),
-                          onPressed: _isLoading ? null : _enablePickOnMap,
-                          child: Text(
-                            _isPickingOnMap ? 'ТКНИТЕ...' : 'УКАЗАТЬ НА КАРТЕ',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                  const SizedBox(height: 10),
-                  if (_allMarkers.isNotEmpty) ...[
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.purple,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(0, 50),
-                        ),
-                        onPressed: _openReorderScreen,
-                        child: const Text('СПИСОК ТОЧЕК (СОРТИРОВКА)', style: TextStyle(fontSize: 14)),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(0, 50),
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _currentTargetIndex = 0;
-                            _totalDistanceKm = 0.0;
-                          });
-                          _updateRouteForCurrentTarget();
-                        },
-                        child: const Text('ПЕРЕСТРОИТЬ (ОПТИМИЗИРОВАТЬ)', style: TextStyle(fontSize: 12)),
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
-          ],
-        ),
-      ),
-      floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 80.0),
-        child: FloatingActionButton(
-          backgroundColor: Colors.blue,
-          child: const Icon(Icons.my_location, color: Colors.white),
-          onPressed: () {
-            if (_currentPosition != null) {
-              _mapController.move(_currentPosition!, 16.0);
-            } else {
-              _startLocationTracking();
-            }
-          },
-        ),
+          ),
+          
+          Positioned(
+            right: 10,
+            bottom: 260,
+            child: FloatingActionButton(
+              backgroundColor: Colors.blue,
+              child: const Icon(Icons.my_location, color: Colors.white),
+              onPressed: () {
+                if (_currentPosition != null) {
+                  _mapController.move(_currentPosition!, 16.0);
+                } else {
+                  _startLocationTracking();
+                }
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -723,7 +834,6 @@ class _ReorderPointsScreenState extends State<ReorderPointsScreen> {
     _fetchAddresses();
   }
 
-  // Получаем текстовые адреса по координатам
   Future<void> _fetchAddresses() async {
     for (int i = 0; i < _tempMarkers.length; i++) {
       final point = _tempMarkers[i];
@@ -734,9 +844,7 @@ class _ReorderPointsScreenState extends State<ReorderPointsScreen> {
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
           if (data['features'] != null && data['features'].isNotEmpty) {
-            // Берем название места (адрес)
             String address = data['features'][0]['place_name'] ?? 'Адрес не найден';
-            // Убираем лишнее (страну, регион), оставляем только улицу и дом
             if (address.contains(',')) {
                List<String> parts = address.split(',');
                if (parts.length >= 2) {
@@ -751,9 +859,7 @@ class _ReorderPointsScreenState extends State<ReorderPointsScreen> {
             }
           }
         }
-      } catch (e) {
-        // Если ошибка — оставляем координаты
-      }
+      } catch (e) {}
     }
   }
 
@@ -806,7 +912,7 @@ class _ReorderPointsScreenState extends State<ReorderPointsScreen> {
                 child: Text('${index + 1}', style: const TextStyle(color: Colors.white)),
               ),
               title: Text(
-                _addresses[index], // Показываем адрес вместо координат
+                _addresses[index],
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
               ),
               subtitle: Text(
