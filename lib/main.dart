@@ -8,6 +8,8 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image_picker/image_picker.dart';
 
 void main() {
   runApp(const MyApp());
@@ -35,7 +37,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   bool _isLoading = false;
-  String _resultText = 'Выберите Excel-файл';
+  String _resultText = 'Выберите файл';
   
   double _totalDistanceKm = 0.0;
   String _distanceToNextTurn = '';
@@ -44,18 +46,21 @@ class _MainScreenState extends State<MainScreen> {
   double _currentSpeed = 0.0;
   String _timeToTarget = '';
   
-  bool _isMenuHidden = false;
+  bool _isMenuHidden = true; 
   
   List<LatLng> _routePoints = []; 
   List<LatLng> _allMarkers = []; 
+  List<LatLng> _savedCameras = []; 
   int _currentTargetIndex = 0; 
   
   LatLng? _currentPosition;
   double _heading = 0.0; 
   bool _isRecalculating = false;
   bool _isPickingOnMap = false;
+  bool _isCameraWarningActive = false;
   
   final MapController _mapController = MapController();
+  final ImagePicker _picker = ImagePicker();
   StreamSubscription<Position>? _positionStreamSubscription;
   static const platform = MethodChannel('com.example.food_express_route/file');
   
@@ -65,13 +70,44 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    _mapController.move(const LatLng(54.7388, 55.9721), 13.0);
     _startLocationTracking();
+    _loadCameras();
   }
 
   @override
   void dispose() {
     _positionStreamSubscription?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadCameras() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String>? cameraStrings = prefs.getStringList('saved_cameras');
+    if (cameraStrings != null) {
+      setState(() {
+        _savedCameras = cameraStrings.map((s) {
+          var parts = s.split(',');
+          return LatLng(double.parse(parts[0]), double.parse(parts[1]));
+        }).toList();
+      });
+    }
+  }
+
+  Future<void> _addCamera() async {
+    if (_currentPosition == null) return;
+    
+    setState(() {
+      _savedCameras.add(_currentPosition!);
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> cameraStrings = _savedCameras.map((p) => '${p.latitude},${p.longitude}').toList();
+    await prefs.setStringList('saved_cameras', cameraStrings);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Камера добавлена!')),
+    );
   }
 
   Future<void> _startLocationTracking() async {
@@ -102,9 +138,7 @@ class _MainScreenState extends State<MainScreen> {
         });
         _mapController.move(_currentPosition!, 16.0);
       }
-    } catch (e) {
-      setState(() => _resultText = 'Ждем сигнал GPS...');
-    }
+    } catch (e) {}
 
     _positionStreamSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 2),
@@ -122,6 +156,7 @@ class _MainScreenState extends State<MainScreen> {
         _checkArrival();
         _checkOffRoute();
         _updateTurnHint();
+        _checkCameraWarning();
         
         if (_currentPosition != null) {
           _mapController.move(_currentPosition!, _mapController.camera.zoom);
@@ -129,6 +164,31 @@ class _MainScreenState extends State<MainScreen> {
         }
       }
     });
+  }
+
+  void _checkCameraWarning() {
+    if (_currentPosition == null || _savedCameras.isEmpty) return;
+
+    for (var camera in _savedCameras) {
+      final distance = Geolocator.distanceBetween(
+        _currentPosition!.latitude, _currentPosition!.longitude,
+        camera.latitude, camera.longitude,
+      );
+
+      if (distance < 300 && distance > 200 && !_isCameraWarningActive) {
+        setState(() {
+          _isCameraWarningActive = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ВНИМАНИЕ: Впереди камера!'), backgroundColor: Colors.red),
+        );
+        break;
+      } else if (distance > 350) {
+        setState(() {
+          _isCameraWarningActive = false;
+        });
+      }
+    }
   }
 
   void _updateTurnHint() {
@@ -345,7 +405,21 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  // УМНАЯ ВСТАВКА СПИСКА АДРЕСОВ
+  Future<void> _takePhoto() async {
+    try {
+      final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
+      if (photo != null) {
+        setState(() {
+          _resultText = 'Фото сделано! (Функция распознавания в разработке)';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _resultText = 'Ошибка камеры: $e';
+      });
+    }
+  }
+
   Future<void> _addPointManually() async {
     final TextEditingController controller = TextEditingController();
     
@@ -355,10 +429,10 @@ class _MainScreenState extends State<MainScreen> {
         return AlertDialog(
           title: const Text('Вставить список адресов'),
           content: SizedBox(
-            height: 200, // Высота окна
+            height: 200,
             child: TextField(
               controller: controller,
-              maxLines: null, // Разрешаем много строк
+              maxLines: null,
               keyboardType: TextInputType.multiline,
               decoration: const InputDecoration(
                 hintText: 'Вставьте адреса (каждый с новой строки):\nул. Ленина 5\nул. Правды 18\n...',
@@ -387,7 +461,6 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _geocodeAndAddMultiplePoints(String text) async {
-    // Разбиваем вставленный текст на строки
     List<String> addressList = text.split('\n').where((s) => s.trim().isNotEmpty).toList();
     
     if (addressList.isEmpty) return;
@@ -421,9 +494,7 @@ class _MainScreenState extends State<MainScreen> {
             successCount++;
           }
         }
-      } catch (e) {
-        // Пропускаем ошибки
-      }
+      } catch (e) {}
     }
 
     setState(() {
@@ -431,7 +502,6 @@ class _MainScreenState extends State<MainScreen> {
       _resultText = 'Найдено $successCount из ${addressList.length}. Нажмите "Перестроить"';
     });
     
-    // Приближаем карту к первой добавленной точке, если есть
     if (_allMarkers.isNotEmpty) {
       _mapController.move(_allMarkers.last, 14.0);
     }
@@ -497,6 +567,24 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  void _showFeedbackDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Связь с администратором'),
+          content: const Text('Функция в разработке. Скоро здесь можно будет отправлять отчеты о багах и предложения прямо на сервер.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Понятно'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     List<LatLng> visibleMarkers = _allMarkers.sublist(_currentTargetIndex);
@@ -548,20 +636,25 @@ class _MainScreenState extends State<MainScreen> {
           ],
         ),
         actions: [
-          if (_allMarkers.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(right: 10),
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  minimumSize: const Size(0, 36),
-                ),
-                onPressed: _completeCurrentPoint,
-                child: const Text('Я НА МЕСТЕ', style: TextStyle(fontSize: 12)),
-              ),
-            ),
+          IconButton(
+            icon: const Icon(Icons.add_a_photo, color: Colors.white),
+            tooltip: 'Добавить камеру',
+            onPressed: _addCamera,
+          ),
+          IconButton(
+            icon: const Icon(Icons.report_problem, color: Colors.white),
+            tooltip: 'Сообщить о проблеме',
+            onPressed: _showFeedbackDialog,
+          ),
+          IconButton(
+            icon: Icon(_isMenuHidden ? Icons.menu : Icons.keyboard_arrow_down, color: Colors.white),
+            tooltip: 'Меню',
+            onPressed: () {
+              setState(() {
+                _isMenuHidden = !_isMenuHidden;
+              });
+            },
+          ),
         ],
       ),
       body: Stack(
@@ -570,8 +663,8 @@ class _MainScreenState extends State<MainScreen> {
             child: FlutterMap(
               mapController: _mapController,
               options: MapOptions(
-                initialCenter: _currentPosition ?? const LatLng(54.7388, 55.9721),
-                initialZoom: 16.0,
+                initialCenter: const LatLng(54.7388, 55.9721),
+                initialZoom: 13.0,
                 onTap: _handleMapTap,
                 interactionOptions: const InteractionOptions(
                   flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag | InteractiveFlag.rotate,
@@ -595,6 +688,16 @@ class _MainScreenState extends State<MainScreen> {
                       color: Colors.blue,
                     ),
                   ],
+                ),
+                MarkerLayer(
+                  markers: _savedCameras.map((cam) {
+                    return Marker(
+                      point: cam,
+                      width: 30,
+                      height: 30,
+                      child: const Icon(Icons.camera_alt, color: Colors.orange, size: 30),
+                    );
+                  }).toList(),
                 ),
                 MarkerLayer(
                   markers: visibleMarkers.asMap().entries.map((entry) {
@@ -677,170 +780,7 @@ class _MainScreenState extends State<MainScreen> {
 
           Positioned(
             right: 10,
-            bottom: 200,
-            child: Column(
-              children: [
-                FloatingActionButton(
-                  mini: true,
-                  backgroundColor: Colors.white,
-                  child: const Icon(Icons.add, color: Colors.black),
-                  onPressed: () {
-                    _mapController.move(_mapController.camera.center, _mapController.camera.zoom + 1);
-                  },
-                ),
-                const SizedBox(height: 10),
-                FloatingActionButton(
-                  mini: true,
-                  backgroundColor: Colors.white,
-                  child: const Icon(Icons.remove, color: Colors.black),
-                  onPressed: () {
-                    _mapController.move(_mapController.camera.center, _mapController.camera.zoom - 1);
-                  },
-                ),
-              ],
-            ),
-          ),
-
-          AnimatedPositioned(
-            duration: const Duration(milliseconds: 300),
-            bottom: _isMenuHidden ? -230 : 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              height: 250,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                boxShadow: [
-                  BoxShadow(color: Colors.black26, blurRadius: 10, spreadRadius: 2),
-                ],
-              ),
-              child: Column(
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _isMenuHidden = !_isMenuHidden;
-                      });
-                    },
-                    child: Container(
-                      margin: const EdgeInsets.only(top: 10, bottom: 10),
-                      width: 50,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[400],
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                  
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(_resultText, style: const TextStyle(fontSize: 14)),
-                              Text(
-                                'Всего: ${_totalDistanceKm.toStringAsFixed(1)} км', 
-                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFE53935),
-                                foregroundColor: Colors.white,
-                                minimumSize: const Size(0, 50),
-                              ),
-                              onPressed: _isLoading ? null : _pickAndUploadFile,
-                              child: const Text('ВЫБРАТЬ EXCEL', style: TextStyle(fontSize: 14)),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: ElevatedButton(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.blue,
-                                    foregroundColor: Colors.white,
-                                    minimumSize: const Size(0, 50),
-                                  ),
-                                  onPressed: _isLoading ? null : _addPointManually,
-                                  child: const Text('+ ТЕКСТОМ', style: TextStyle(fontSize: 12)),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: ElevatedButton(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: _isPickingOnMap ? Colors.orange : Colors.blue,
-                                    foregroundColor: Colors.white,
-                                    minimumSize: const Size(0, 50),
-                                  ),
-                                  onPressed: _isLoading ? null : _enablePickOnMap,
-                                  child: Text(
-                                    _isPickingOnMap ? 'ТКНИТЕ...' : 'УКАЗАТЬ НА КАРТЕ',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          if (_allMarkers.isNotEmpty) ...[
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.purple,
-                                  foregroundColor: Colors.white,
-                                  minimumSize: const Size(0, 50),
-                                ),
-                                onPressed: _openReorderScreen,
-                                child: const Text('СПИСОК ТОЧЕК (СОРТИРОВКА)', style: TextStyle(fontSize: 14)),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.orange,
-                                  foregroundColor: Colors.white,
-                                  minimumSize: const Size(0, 50),
-                                ),
-                                onPressed: () {
-                                  if (_allMarkers.isEmpty) return;
-                                  setState(() {
-                                    _currentTargetIndex = 0;
-                                    _totalDistanceKm = 0.0;
-                                  });
-                                  _updateRouteForCurrentTarget();
-                                },
-                                child: const Text('ПЕРЕСТРОИТЬ (ОПТИМИЗИРОВАТЬ)', style: TextStyle(fontSize: 12)),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          
-          AnimatedPositioned(
-            duration: const Duration(milliseconds: 300),
-            right: 10,
-            bottom: _isMenuHidden ? 20 : 260,
+            bottom: _isMenuHidden ? 20 : 260, 
             child: FloatingActionButton(
               backgroundColor: Colors.blue,
               child: const Icon(Icons.my_location, color: Colors.white),
@@ -851,6 +791,158 @@ class _MainScreenState extends State<MainScreen> {
                   _startLocationTracking();
                 }
               },
+            ),
+          ),
+
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 300),
+            bottom: _isMenuHidden ? -300 : 0, 
+            left: 0,
+            right: 0,
+            child: GestureDetector(
+              onVerticalDragEnd: (details) {
+                if (details.primaryVelocity! > 0) {
+                  setState(() {
+                    _isMenuHidden = true;
+                  });
+                }
+              },
+              child: Container(
+                height: 300,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black26, blurRadius: 10, spreadRadius: 2),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.only(top: 10, bottom: 10),
+                      width: 50,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[400],
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(_resultText, style: const TextStyle(fontSize: 14)),
+                                Text(
+                                  'Всего: ${_totalDistanceKm.toStringAsFixed(1)} км', 
+                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFE53935),
+                                  foregroundColor: Colors.white,
+                                  minimumSize: const Size(0, 50),
+                                ),
+                                onPressed: _isLoading ? null : _pickAndUploadFile,
+                                child: const Text('ВЫБРАТЬ ФАЙЛ', style: TextStyle(fontSize: 14)),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.blue,
+                                      foregroundColor: Colors.white,
+                                      minimumSize: const Size(0, 50),
+                                    ),
+                                    onPressed: _isLoading ? null : _addPointManually,
+                                    child: const Text('+ ТЕКСТОМ', style: TextStyle(fontSize: 12)),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.blue,
+                                      foregroundColor: Colors.white,
+                                      minimumSize: const Size(0, 50),
+                                    ),
+                                    onPressed: _takePhoto,
+                                    child: const Text('ФОТО', style: TextStyle(fontSize: 12)),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _isPickingOnMap ? Colors.orange : Colors.blue,
+                                      foregroundColor: Colors.white,
+                                      minimumSize: const Size(0, 50),
+                                    ),
+                                    onPressed: _isLoading ? null : _enablePickOnMap,
+                                    child: Text(
+                                      _isPickingOnMap ? 'ТКНИТЕ...' : 'НА КАРТЕ',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            if (_allMarkers.isNotEmpty) ...[
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.purple,
+                                        foregroundColor: Colors.white,
+                                        minimumSize: const Size(0, 50),
+                                      ),
+                                      onPressed: _openReorderScreen,
+                                      child: const Text('СПИСОК', style: TextStyle(fontSize: 12)),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.orange,
+                                        foregroundColor: Colors.white,
+                                        minimumSize: const Size(0, 50),
+                                      ),
+                                      onPressed: () {
+                                        if (_allMarkers.isEmpty) return;
+                                        setState(() {
+                                          _currentTargetIndex = 0;
+                                          _totalDistanceKm = 0.0;
+                                        });
+                                        _updateRouteForCurrentTarget();
+                                      },
+                                      child: const Text('ПЕРЕСТРОИТЬ', style: TextStyle(fontSize: 12)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
@@ -981,19 +1073,4 @@ class _ReorderPointsScreenState extends State<ReorderPointsScreen> {
                     },
                   ),
                   IconButton(
-                    icon: Icon(Icons.arrow_upward, color: index == 0 ? Colors.grey : Colors.blue),
-                    onPressed: index == 0 ? null : () => _moveUp(index),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.arrow_downward, color: index == _tempMarkers.length - 1 ? Colors.grey : Colors.blue),
-                    onPressed: index == _tempMarkers.length - 1 ? null : () => _moveDown(index),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
+                    icon: Icon(Icons.arrow_upward, color
