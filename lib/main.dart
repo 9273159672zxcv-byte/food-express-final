@@ -44,7 +44,6 @@ class _MainScreenState extends State<MainScreen> {
   double _currentSpeed = 0.0;
   String _timeToTarget = '';
   
-  // Переменная для скрытия меню
   bool _isMenuHidden = false;
   
   List<LatLng> _routePoints = []; 
@@ -346,6 +345,7 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  // УМНАЯ ВСТАВКА СПИСКА АДРЕСОВ
   Future<void> _addPointManually() async {
     final TextEditingController controller = TextEditingController();
     
@@ -353,10 +353,17 @@ class _MainScreenState extends State<MainScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Добавить точку (текст)'),
-          content: TextField(
-            controller: controller,
-            decoration: const InputDecoration(hintText: 'Например: ул. Ленина 5'),
+          title: const Text('Вставить список адресов'),
+          content: SizedBox(
+            height: 200, // Высота окна
+            child: TextField(
+              controller: controller,
+              maxLines: null, // Разрешаем много строк
+              keyboardType: TextInputType.multiline,
+              decoration: const InputDecoration(
+                hintText: 'Вставьте адреса (каждый с новой строки):\nул. Ленина 5\nул. Правды 18\n...',
+              ),
+            ),
           ),
           actions: [
             TextButton(
@@ -365,13 +372,13 @@ class _MainScreenState extends State<MainScreen> {
             ),
             TextButton(
               onPressed: () async {
-                final address = controller.text;
-                if (address.isNotEmpty) {
+                final text = controller.text;
+                if (text.isNotEmpty) {
                   Navigator.pop(context);
-                  await _geocodeAndAddPoint(address);
+                  await _geocodeAndAddMultiplePoints(text);
                 }
               },
-              child: const Text('Найти'),
+              child: const Text('Найти все'),
             ),
           ],
         );
@@ -379,10 +386,15 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Future<void> _geocodeAndAddPoint(String address) async {
+  Future<void> _geocodeAndAddMultiplePoints(String text) async {
+    // Разбиваем вставленный текст на строки
+    List<String> addressList = text.split('\n').where((s) => s.trim().isNotEmpty).toList();
+    
+    if (addressList.isEmpty) return;
+
     setState(() {
       _isLoading = true;
-      _resultText = 'Ищем адрес...';
+      _resultText = 'Ищем ${addressList.length} адресов...';
     });
 
     String proximity = _ufaCenter; 
@@ -390,35 +402,38 @@ class _MainScreenState extends State<MainScreen> {
       proximity = '${_currentPosition!.longitude},${_currentPosition!.latitude}';
     }
 
-    final url = 'https://api.mapbox.com/geocoding/v5/mapbox.places/${Uri.encodeComponent(address)}.json?access_token=$_mapboxToken&limit=1&proximity=$proximity';
+    int successCount = 0;
 
-    try {
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['features'] != null && data['features'].isNotEmpty) {
-          final coords = data['features'][0]['geometry']['coordinates'];
-          final newPoint = LatLng(coords[1], coords[0]);
-          
-          setState(() {
-            _allMarkers.add(newPoint);
-            _isLoading = false;
-            _resultText = 'Точка добавлена! Нажмите "Перестроить"';
-          });
-          
-          _mapController.move(newPoint, 16.0);
-        } else {
-          setState(() {
-            _isLoading = false;
-            _resultText = 'Адрес не найден.';
-          });
+    for (String address in addressList) {
+      final url = 'https://api.mapbox.com/geocoding/v5/mapbox.places/${Uri.encodeComponent(address.trim())}.json?access_token=$_mapboxToken&limit=1&proximity=$proximity';
+
+      try {
+        final response = await http.get(Uri.parse(url));
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data['features'] != null && data['features'].isNotEmpty) {
+            final coords = data['features'][0]['geometry']['coordinates'];
+            final newPoint = LatLng(coords[1], coords[0]);
+            
+            setState(() {
+              _allMarkers.add(newPoint);
+            });
+            successCount++;
+          }
         }
+      } catch (e) {
+        // Пропускаем ошибки
       }
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _resultText = 'Ошибка при поиске адреса.';
-      });
+    }
+
+    setState(() {
+      _isLoading = false;
+      _resultText = 'Найдено $successCount из ${addressList.length}. Нажмите "Перестроить"';
+    });
+    
+    // Приближаем карту к первой добавленной точке, если есть
+    if (_allMarkers.isNotEmpty) {
+      _mapController.move(_allMarkers.last, 14.0);
     }
   }
 
@@ -494,7 +509,6 @@ class _MainScreenState extends State<MainScreen> {
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Скорость
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -506,7 +520,6 @@ class _MainScreenState extends State<MainScreen> {
               ],
             ),
             
-            // Пробки
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -522,7 +535,6 @@ class _MainScreenState extends State<MainScreen> {
               ],
             ),
 
-            // Время
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -570,7 +582,6 @@ class _MainScreenState extends State<MainScreen> {
                   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'com.example.food_express_route',
                 ),
-                // Слой пробок
                 TileLayer(
                   urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/traffic-day-v2/tiles/{z}/{x}/{y}?access_token=$_mapboxToken',
                   userAgentPackageName: 'com.example.food_express_route',
@@ -690,10 +701,9 @@ class _MainScreenState extends State<MainScreen> {
             ),
           ),
 
-          // НИЖНЯЯ ШТОРКА
           AnimatedPositioned(
             duration: const Duration(milliseconds: 300),
-            bottom: _isMenuHidden ? -230 : 0, // Если скрыто, уезжает вниз
+            bottom: _isMenuHidden ? -230 : 0,
             left: 0,
             right: 0,
             child: Container(
@@ -707,7 +717,6 @@ class _MainScreenState extends State<MainScreen> {
               ),
               child: Column(
                 children: [
-                  // Кнопка-ручка для скрытия/открытия
                   GestureDetector(
                     onTap: () {
                       setState(() {
@@ -828,7 +837,6 @@ class _MainScreenState extends State<MainScreen> {
             ),
           ),
           
-          // Кнопка "Где я" (поднимается, когда шторка скрыта)
           AnimatedPositioned(
             duration: const Duration(milliseconds: 300),
             right: 10,
