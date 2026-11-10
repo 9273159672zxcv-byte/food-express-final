@@ -44,6 +44,9 @@ class _MainScreenState extends State<MainScreen> {
   double _currentSpeed = 0.0;
   String _timeToTarget = '';
   
+  // Переменная для скрытия меню
+  bool _isMenuHidden = false;
+  
   List<LatLng> _routePoints = []; 
   List<LatLng> _allMarkers = []; 
   int _currentTargetIndex = 0; 
@@ -236,7 +239,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _updateRouteForCurrentTarget() async {
-    if (_currentPosition == null || _currentTargetIndex >= _allMarkers.length) return;
+    if (_currentPosition == null || _allMarkers.isEmpty || _currentTargetIndex >= _allMarkers.length) return;
 
     final target = _allMarkers[_currentTargetIndex];
     final start = _currentPosition!;
@@ -281,7 +284,7 @@ class _MainScreenState extends State<MainScreen> {
     } catch (e) {}
 
     setState(() {
-      _resultText = 'Нет связи. Едем по старому маршруту.';
+      _resultText = 'Нет связи. Маршрут не построен.';
     });
   }
 
@@ -491,6 +494,7 @@ class _MainScreenState extends State<MainScreen> {
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
+            // Скорость
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -501,6 +505,24 @@ class _MainScreenState extends State<MainScreen> {
                 const Text('км/ч', style: TextStyle(fontSize: 10, color: Colors.white70)),
               ],
             ),
+            
+            // Пробки
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.traffic,
+                  color: _timeToTarget.isNotEmpty ? Colors.orange : Colors.white70,
+                  size: 24,
+                ),
+                Text(
+                  _timeToTarget.isNotEmpty ? 'Пробки есть' : 'Свободно',
+                  style: const TextStyle(fontSize: 10, color: Colors.white70),
+                ),
+              ],
+            ),
+
+            // Время
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -547,6 +569,12 @@ class _MainScreenState extends State<MainScreen> {
                 TileLayer(
                   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'com.example.food_express_route',
+                ),
+                // Слой пробок
+                TileLayer(
+                  urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/traffic-day-v2/tiles/{z}/{x}/{y}?access_token=$_mapboxToken',
+                  userAgentPackageName: 'com.example.food_express_route',
+                  opacity: 0.4,
                 ),
                 PolylineLayer(
                   polylines: [
@@ -662,8 +690,10 @@ class _MainScreenState extends State<MainScreen> {
             ),
           ),
 
-          Positioned(
-            bottom: 0,
+          // НИЖНЯЯ ШТОРКА
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 300),
+            bottom: _isMenuHidden ? -230 : 0, // Если скрыто, уезжает вниз
             left: 0,
             right: 0,
             child: Container(
@@ -677,13 +707,21 @@ class _MainScreenState extends State<MainScreen> {
               ),
               child: Column(
                 children: [
-                  Container(
-                    margin: const EdgeInsets.only(top: 10, bottom: 10),
-                    width: 50,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(10),
+                  // Кнопка-ручка для скрытия/открытия
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _isMenuHidden = !_isMenuHidden;
+                      });
+                    },
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 10, bottom: 10),
+                      width: 50,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[400],
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                   ),
                   
@@ -770,6 +808,7 @@ class _MainScreenState extends State<MainScreen> {
                                   minimumSize: const Size(0, 50),
                                 ),
                                 onPressed: () {
+                                  if (_allMarkers.isEmpty) return;
                                   setState(() {
                                     _currentTargetIndex = 0;
                                     _totalDistanceKm = 0.0;
@@ -789,9 +828,11 @@ class _MainScreenState extends State<MainScreen> {
             ),
           ),
           
-          Positioned(
+          // Кнопка "Где я" (поднимается, когда шторка скрыта)
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 300),
             right: 10,
-            bottom: 260,
+            bottom: _isMenuHidden ? 20 : 260,
             child: FloatingActionButton(
               backgroundColor: Colors.blue,
               child: const Icon(Icons.my_location, color: Colors.white),
